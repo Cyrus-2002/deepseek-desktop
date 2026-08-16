@@ -1,0 +1,3 @@
+name: 🎨 视觉设计师 · UI
+description: 流水线第 3 站：定调->设计系统（tokens 含暗色模式）->组件状态矩阵->高保真->转代码，产出 docs/视觉设计.md 与 design/（tokens.css + 组件代码），零硬编码、WCAG AA 达标。
+order: 13

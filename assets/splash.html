@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>DeepSeek Desktop</title>
+  <style>
+    :root {
+      --ds-blue: #4d6bfd;
+      --ink: #1c2333;
+      --ink-dim: #8b94a8;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(760px 520px at 50% 16%, rgba(77, 107, 253, 0.12) 0%, rgba(77, 107, 253, 0) 62%),
+        linear-gradient(180deg, #fbfcfe 0%, #f3f6fc 48%, #edf1f9 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      transition: opacity 0.28s ease;
+      -webkit-font-smoothing: antialiased;
+    }
+    body.ds-splash-fade { opacity: 0; }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding-bottom: 4vh;
+    }
+
+    .logo-area {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      animation: fadeIn 1s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+    }
+    .aura {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 280px;
+      height: 280px;
+      transform: translate(-50%, -54%);
+      background: radial-gradient(circle, rgba(77, 107, 253, 0.20) 0%, rgba(77, 107, 253, 0) 66%);
+      filter: blur(6px);
+      animation: auraPulse 4.6s ease-in-out infinite;
+      pointer-events: none;
+    }
+    .logo {
+      position: relative;
+      width: 116px;
+      height: 116px;
+      z-index: 1;
+      animation: float3d 4.6s ease-in-out infinite;
+      transform-style: preserve-3d;
+    }
+    .logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 26px 34px rgba(77, 107, 253, 0.30));
+    }
+    .reflect {
+      margin-top: 10px;
+      width: 100px;
+      height: 100px;
+      opacity: 0.16;
+      transform: scaleY(-1);
+      filter: blur(3px) saturate(0.6);
+      -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 62%);
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 62%);
+    }
+    .reflect img { width: 100%; height: 100%; object-fit: contain; }
+
+    .wordmark {
+      margin-top: 26px;
+      font-size: 23px;
+      font-weight: 650;
+      letter-spacing: 0.5px;
+      color: var(--ink);
+      animation: fadeIn 0.8s 0.15s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+    }
+    .wordmark span { color: var(--ds-blue); }
+    .status {
+      margin-top: 11px;
+      font-size: 13px;
+      color: var(--ink-dim);
+      letter-spacing: 0.2px;
+      animation: fadeIn 0.8s 0.25s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+    }
+    .bar {
+      margin-top: 22px;
+      width: 168px;
+      height: 2px;
+      border-radius: 2px;
+      background: rgba(77, 107, 253, 0.14);
+      overflow: hidden;
+      animation: fadeIn 0.8s 0.35s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+    }
+    .bar i {
+      display: block;
+      width: 40%;
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, transparent, var(--ds-blue), transparent);
+      animation: slide 1.5s ease-in-out infinite;
+    }
+
+    .hidden { display: none; }
+    .error {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #d94747;
+      max-width: 420px;
+      line-height: 1.6;
+    }
+    .retry {
+      margin-top: 16px;
+      padding: 9px 22px;
+      border: 1px solid rgba(77, 107, 253, 0.4);
+      background: rgba(77, 107, 253, 0.08);
+      color: var(--ds-blue);
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      transition: background 0.15s ease;
+    }
+    .retry:hover { background: rgba(77, 107, 253, 0.16); }
+
+    .footer {
+      position: fixed;
+      bottom: 20px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 11px;
+      color: #b6bdcc;
+      letter-spacing: 0.6px;
+      animation: fadeIn 0.8s 0.55s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(22px) scale(0.96); filter: blur(8px); }
+      to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+    }
+    @keyframes float3d {
+      0%, 100% { transform: perspective(720px) rotateX(2deg) rotateY(-10deg) translateY(0) scale(1); }
+      50% { transform: perspective(720px) rotateX(8deg) rotateY(10deg) translateY(-16px) scale(1.04); }
+    }
+    @keyframes auraPulse {
+      0%, 100% { opacity: 0.7; transform: translate(-50%, -54%) scale(1); }
+      50% { opacity: 1; transform: translate(-50%, -54%) scale(1.12); }
+    }
+    @keyframes slide {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(320%); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+      .logo-area, .wordmark, .status, .bar { opacity: 1 !important; transform: none !important; filter: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="logo-area">
+      <div class="aura"></div>
+      <div class="logo"><img src="./icon.png" alt="DeepSeek" /></div>
+      <div class="reflect"><img src="./icon.png" alt="" /></div>
+    </div>
+    <div class="wordmark">DeepSeek <span>Desktop</span></div>
+    <div class="status" id="status">探索未至之境</div>
+    <div class="bar"><i></i></div>
+    <div class="error hidden" id="error"></div>
+    <button class="retry hidden" id="retry">重新启动</button>
+  </div>
+  <div class="footer">Designed by Cyrus</div>
+  <script>
+    if (window.desktop) {
+      window.desktop.onReady(() => {
+        document.getElementById('status').textContent = '引擎就绪，正在载入…'
+        document.body.classList.add('ds-splash-fade')
+      })
+      window.desktop.onError((message) => {
+        const err = document.getElementById('error')
+        err.textContent = message
+        err.classList.remove('hidden')
+        document.getElementById('retry').classList.remove('hidden')
+      })
+      window.desktop.onShowRetry(() => {
+        document.getElementById('retry').classList.remove('hidden')
+      })
+      document.getElementById('retry').addEventListener('click', () => {
+        document.getElementById('error').classList.add('hidden')
+        document.getElementById('retry').classList.add('hidden')
+        document.getElementById('status').textContent = '正在重新启动引擎…'
+        window.desktop.restart()
+      })
+    }
+  </script>
+</body>
+</html>

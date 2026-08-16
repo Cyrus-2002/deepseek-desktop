@@ -1,0 +1,36 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 运行时/用户数据（机器相关，不应提交）
+logs/
+userdata/
+session/
+usage/
+storages/
+profiles/
+settings.yaml
+.credentials.yaml
+.anonymous-user-id
+.env
+
+# 本机配置（loadConfig 每次运行会写入绝对路径，属机器相关）
+config.json
+
+# 运行时生成的用户数据：Agent 预设 / Skills 目录下仅提交随项目发布的示例
+.agent-presets/*
+!.agent-presets/README.md
+!.agent-presets/example/
+!.agent-presets/sd-architect/
+!.agent-presets/sd-dev/
+!.agent-presets/sd-orchestrator/
+!.agent-presets/sd-pm/
+!.agent-presets/sd-qa/
+!.agent-presets/sd-reviewer/
+!.agent-presets/sd-ui/
+!.agent-presets/sd-ux/
+skills/*/
+!skills/example-skill/
+
+# 工具目录
+.claude/

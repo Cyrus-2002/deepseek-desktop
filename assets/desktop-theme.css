@@ -1,0 +1,80 @@
+/* DeepSeek Desktop — 桌面版主题精修（注入到 dsh web UI）
+ *
+ * 目标：对标 Codex / Claude Code 的极简流畅感。
+ * 1) 把主品牌色从默认的黑/白改为 DeepSeek 蓝（#4D6BFD），让主按钮/强调更“鲸鱼蓝”；
+ * 2) 细化滚动条，更轻、更现代；
+ * 3) 给常见交互元素加克制的过渡，让操作更丝滑。
+ * 仅覆盖 CSS 变量与通用选择器，不依赖 dsh 的具体类名，避免破坏布局。
+ */
+
+body {
+  /* 品牌主色 → DeepSeek 蓝 */
+  --dsw-alias-brand-primary: #4d6bfd;
+  --dsw-alias-brand-primary-invert: #ffffff;
+  --dsw-alias-brand-text: #4d6bfd;
+  --dsw-alias-button-primary-fill: #4d6bfd;
+  --dsw-alias-button-primary-hover: #3f5ce6;
+  --dsw-alias-button-primary-dimmed: #e7ebff;
+  --dsw-alias-button-info-fill: #4d6bfd;
+  --dsw-alias-button-info-hover: #3f5ce6;
+  --dsw-alias-state-business-primary: #4d6bfd;
+}
+
+body[data-ds-dark-theme] {
+  --dsw-alias-brand-primary: #6b86ff;
+  --dsw-alias-brand-primary-invert: #0b0d16;
+  --dsw-alias-brand-text: #8fa3ff;
+  --dsw-alias-button-primary-fill: #4d6bfd;
+  --dsw-alias-button-primary-hover: #5b78ff;
+  --dsw-alias-button-primary-dimmed: #1a2245;
+  --dsw-alias-button-info-fill: #4d6bfd;
+  --dsw-alias-button-info-hover: #5b78ff;
+  --dsw-alias-state-business-primary: #6b86ff;
+}
+
+/* 更轻的现代滚动条（覆盖到所有滚动容器） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 132, 158, 0.45) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 132, 158, 0.4);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 132, 158, 0.6);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 克制的交互过渡，让点击/悬停更丝滑 */
+button,
+[role='button'],
+[role='tab'],
+a {
+  transition: background-color 0.14s ease, color 0.14s ease,
+    border-color 0.14s ease, opacity 0.14s ease, transform 0.14s ease;
+}
+
+/* 平滑滚动 */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

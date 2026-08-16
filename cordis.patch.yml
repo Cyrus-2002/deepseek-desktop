@@ -1,0 +1,13 @@
+# DeepSeek Desktop 全局补丁层（$DSH_HOME/cordis.patch.yml）
+#
+# 在所有 bundle 与 profile 补丁之后应用，可覆盖任意插件行的 config。
+# 1) 会话历史落到 <desktop>/session（单数，贴合“session 文件夹”命名）；
+# 2) 会话日志用原始 JSONL（compression: none）——可读、透明，桌面端用量统计直接读取，
+#    也便于用户手动查看/备份聊天记录。
+#
+# 注意：DSH_HOME 由 Electron 主进程 spawn 引擎时注入真实进程环境（DSH_ 前缀不能放 .env）。
+
+- id: session-persistence-jsonl
+  config:
+    root: !!js dshHomePath('session')
+    compression: 'none'

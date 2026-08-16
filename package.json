@@ -1,0 +1,51 @@
+{
+  "name": "deepseek-desktop",
+  "productName": "DeepSeek Desktop",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness 桌面版：Electron + 本地 dsh web 引擎，对标 Codex / Claude Code 的流畅体验。",
+  "author": "DeepSeek Harness",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "pack": "electron-builder --dir",
+    "dist": "node scripts/dist.js"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "^25.1.8",
+    "resedit": "^3.0.2"
+  },
+  "build": {
+    "appId": "com.deepseek.desktop",
+    "productName": "DeepSeek Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "scripts/**",
+      "assets/**",
+      "config.json",
+      "cordis.patch.yml",
+      "skills/**",
+      ".agent-presets/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "signAndEditExecutable": false
+    }
+  }
+}

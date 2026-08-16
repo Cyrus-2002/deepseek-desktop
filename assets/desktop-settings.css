@@ -1,0 +1,145 @@
+/* DeepSeek Desktop — 可拖动悬浮设置按钮 + 下拉菜单（iOS 风格）
+ * 毛玻璃、圆角、平滑过渡；明暗主题自适应；尊重 reduced-motion。
+ * 位置由 JS 动态写入 left/top（按用户拖动位置 + 视口边界约束）。
+ */
+
+.dsdesk-settings-btn {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483000;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  color: #3a4156;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.14), 0 1px 3px rgba(15, 23, 42, 0.08);
+  transition: transform 0.18s cubic-bezier(0.22, 0.9, 0.36, 1),
+    background-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+.dsdesk-settings-btn:hover {
+  transform: translateY(-1px) scale(1.05);
+  background: rgba(255, 255, 255, 0.9);
+  color: #4d6bfd;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.2);
+}
+.dsdesk-settings-btn:active {
+  transform: scale(0.94);
+  transition-duration: 0.08s;
+}
+.dsdesk-settings-btn.dragging {
+  cursor: grabbing;
+  transform: scale(0.95);
+  opacity: 0.92;
+  transition: none;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+}
+body.dsdesk-grabbing, body.dsdesk-grabbing * { cursor: grabbing !important; }
+
+/* 深色主题 */
+body[data-ds-dark-theme] .dsdesk-settings-btn {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(28, 31, 44, 0.66);
+  color: #cdd4e6;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
+}
+body[data-ds-dark-theme] .dsdesk-settings-btn:hover {
+  background: rgba(40, 44, 60, 0.86);
+  color: #8fa3ff;
+}
+body[data-ds-dark-theme] .dsdesk-settings-btn.dragging {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+.dsdesk-settings-menu {
+  position: fixed;
+  z-index: 2147483001;
+  min-width: 224px;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.22, 0.9, 0.36, 1);
+  pointer-events: none;
+}
+.dsdesk-settings-menu.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.dsdesk-settings-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  color: #3a4156;
+  font-size: 13.5px;
+  line-height: 1;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  letter-spacing: 0.1px;
+  transition: background-color 0.14s ease, color 0.14s ease, transform 0.1s ease;
+}
+.dsdesk-settings-item svg {
+  flex: 0 0 auto;
+  opacity: 0.78;
+}
+.dsdesk-settings-item:hover {
+  background: rgba(77, 107, 253, 0.1);
+  color: #4d6bfd;
+}
+.dsdesk-settings-item:active {
+  transform: scale(0.98);
+}
+
+.dsdesk-settings-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+body[data-ds-dark-theme] .dsdesk-settings-menu {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(22, 25, 36, 0.8);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+body[data-ds-dark-theme] .dsdesk-settings-item {
+  color: #cdd4e6;
+}
+body[data-ds-dark-theme] .dsdesk-settings-item:hover {
+  background: rgba(107, 134, 255, 0.16);
+  color: #a5b6ff;
+}
+body[data-ds-dark-theme] .dsdesk-settings-sep {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsdesk-settings-btn,
+  .dsdesk-settings-menu,
+  .dsdesk-settings-item {
+    transition: none !important;
+  }
+}

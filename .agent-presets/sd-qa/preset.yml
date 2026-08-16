@@ -1,0 +1,3 @@
+name: 🧪 验收测试官 · QA
+description: 流水线第 7 站（最终防线）：从 PRD 验收标准独立导出用例矩阵，亲自运行 E2E 与手动用例，核对状态清单与性能实测，输出带 Go/No-Go 裁决的 QA-REPORT.md。
+order: 17
