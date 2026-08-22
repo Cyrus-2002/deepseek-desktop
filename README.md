@@ -106,6 +106,7 @@ deepseek-desktop/
 ├── scripts/
 │   ├── engine.js               # 拉起 dsh web 子进程，嗅探就绪 URL
 │   ├── usage.js                # 从 session/ 重建用量快照（今天/7天/30天）
+│   ├── updater.js              # 检查更新：拉 GitHub 最新 harness 源码并重建
 │   └── dist.js                 # 打包脚本（保数据：先备份用户数据再重建）
 ├── assets/                     # 鲸鱼图标、启动页、主题 CSS/JS、用量面板
 │   ├── icon.png / icon.ico
@@ -147,6 +148,17 @@ deepseek-desktop/
 - 菜单「**设置 → API 用量**」或 `Ctrl+Shift+U` → 用量面板（今天 / 7 天 / 30 天）
 - 菜单「**设置**」下可一键打开：会话目录、Skills 目录、Agent 预设目录、插件目录
 - 帮助菜单 → 关于 / DeepSeek Harness 文档
+
+---
+
+## ⬆️ 检查更新
+
+悬浮设置按钮 -> 「检查更新」：
+
+- 自动对比本地与 GitHub 上游（deepseek-ai/deepseek-harness）的版本号
+- 发现新版本时展示版本差异与最新提交信息，确认后一键更新：下载源码 tarball -> 备份旧版 -> 覆盖 `harnessRoot`（默认 `../deepseek-harness-master`）-> `pnpm install` + `pnpm run build` -> 自动重启引擎
+- 更新失败自动恢复旧版本，绝不留半成品
+- 需要 `pnpm` 可用（构建依赖）；CLI 手动触发：`node scripts/updater.js`（`--dry-run` 仅下载解压验证）
 
 ---
 

@@ -14,7 +14,7 @@
 'use strict'
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
-const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, statSync, readdirSync } = require('node:fs')
+const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, statSync, readdirSync, renameSync, rmSync } = require('node:fs')
 const path = require('node:path')
 
 // 打包后：应用代码/资源在 app.asar（只读），用户数据（会话/settings/logs/配置）
@@ -25,6 +25,7 @@ process.env.DSH_DESKTOP_APP_ROOT = APP_ROOT
 
 const engine = require('./scripts/engine.js')
 const usage = require('./scripts/usage.js')
+const updater = require('./scripts/updater.js')
 
 const APP_NAME = 'DeepSeek Desktop'
 const APP_ID = 'com.deepseek.desktop'
@@ -87,6 +88,39 @@ function validateHarness(root) {
     ['Web 前端', path.join(root, 'apps', 'web', 'dist', 'index.html')],
   ]
   return needed.filter(([, p]) => !existsSync(p))
+}
+
+/** 更新进行中标志：为 true 时拦截退出，避免中断留下无构建产物的新源码。 */
+let updating = false
+
+/**
+ * 自愈被中断的更新：harnessRoot 缺构建产物、且旁边存在 .dsh-fallback-* 备份时，
+ * 删除半成品并恢复备份（取时间戳最新的一个）。
+ * @returns {boolean} 是否完成了恢复
+ */
+function recoverInterruptedUpdate(harnessRoot) {
+  // A completed update may intentionally retain a fallback directory until a
+  // later health check.  Never replace a complete current harness merely
+  // because such a backup exists.
+  if (validateHarness(harnessRoot).length === 0) return false
+
+  const parent = path.dirname(harnessRoot)
+  let fallbacks = []
+  try {
+    fallbacks = readdirSync(parent).filter((n) => n.startsWith('.dsh-fallback-')).sort()
+  } catch { return false }
+  if (fallbacks.length === 0) return false
+  const fb = path.join(parent, fallbacks[fallbacks.length - 1])
+  if (!existsSync(path.join(fb, 'apps', 'cli', 'lib', 'bin.js'))) return false
+  try {
+    rmSync(harnessRoot, { recursive: true, force: true })
+    renameSync(fb, harnessRoot)
+    log(`检测到未完成的更新，已自动恢复旧版本（来自 ${path.basename(fb)}）`)
+    return true
+  } catch (error) {
+    log(`恢复中断更新失败: ${error.message}`)
+    return false
+  }
 }
 
 /** 递归复制（asar 兼容：cpSync 无法遍历 asar 内目录，改用 readdir/readFile）。 */
@@ -200,6 +234,14 @@ function createWindow(config) {
 
   window.once('ready-to-show', () => window.show())
   window.on('closed', () => { mainWindow = null })
+  // 品牌标题：把 dsh web 的 "DSH Local Build" 窗口标题改写为 DeepSeek
+  //（page-title-updated 每次页面改标题都会触发；仅在含品牌串时拦截改写）
+  window.on('page-title-updated', (event, title) => {
+    if (typeof title === 'string' && title.includes('DSH Local Build')) {
+      event.preventDefault()
+      window.setTitle(title.split('DSH Local Build').join('DeepSeek'))
+    }
+  })
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
@@ -252,9 +294,12 @@ function fadeSplashThenLoad(window, url) {
 }
 
 async function boot(config) {
-  const window = createWindow(config)
+  // Start the local service before constructing the splash window.  Window
+  // creation and Chromium initialization can now overlap dsh's module load.
+  let window = null
   try {
     engine.startEngine({ harnessRoot: config.harnessRoot, nodePath: config.nodePath })
+    window = createWindow(config)
     const url = await waitForEngineReady(60_000)
     if (window.isDestroyed()) return
     // 通知启动页淡出（splash 监听 desktop:ready）
@@ -281,9 +326,10 @@ async function boot(config) {
     monitor.unref?.()
   } catch (error) {
     log(`启动失败: ${error.message}`)
-    if (window.isDestroyed()) return
-    window.webContents.send('desktop:error', `引擎启动失败：${error.message}`)
-    window.webContents.send('desktop:show-retry', true)
+    const activeWindow = window || createWindow(config)
+    if (activeWindow.isDestroyed()) return
+    activeWindow.webContents.send('desktop:error', `引擎启动失败：${error.message}`)
+    activeWindow.webContents.send('desktop:show-retry', true)
   }
 }
 
@@ -438,6 +484,54 @@ function registerIpc(config) {
       return { windows: {}, error: error.message }
     }
   })
+  ipcMain.handle('desktop:check-update', async () => {
+    try {
+      return await updater.analyze(APP_ROOT, config.harnessRoot)
+    } catch (error) {
+      log(`检查更新失败: ${error.message}`)
+      return { ok: false, error: error.message }
+    }
+  })
+  ipcMain.handle('desktop:apply-update', async (event) => {
+    updating = true
+    const win = BrowserWindow.fromWebContents(event.sender) || mainWindow
+    const progress = (msg) => {
+      if (win !== null && !win.isDestroyed()) win.webContents.send('desktop:update-status', msg)
+    }
+    try {
+      // 更新前停掉引擎，避免占用源码文件
+      engine.stopEngine()
+      progress({ step: 'begin', message: '准备更新…' })
+      const remote = await updater.fetchRemoteInfo()
+      const r = await updater.applyUpdate({
+        appRoot: APP_ROOT,
+        harnessRoot: config.harnessRoot,
+        remote,
+        progress,
+      })
+      // 更新完成后重启引擎并载入新 UI
+      if (win !== null && !win.isDestroyed()) showLoading(win)
+      try {
+        engine.startEngine({ harnessRoot: config.harnessRoot, nodePath: config.nodePath })
+        const url = await waitForEngineReady(120_000)
+        if (win !== null && !win.isDestroyed()) {
+          win.webContents.send('desktop:ready', { url })
+          await new Promise((resolve) => setTimeout(resolve, 220))
+          win.loadURL(url)
+        }
+      } catch (e2) {
+        log(`更新后引擎重启失败: ${e2.message}`)
+        progress({ step: 'fail', message: '引擎重启失败：' + e2.message })
+      }
+      return r
+    } catch (error) {
+      log(`更新失败: ${error.message}`)
+      progress({ step: 'fail', message: '更新失败：' + error.message })
+      return { ok: false, error: error.message }
+    } finally {
+      updating = false
+    }
+  })
   ipcMain.handle('desktop:restart', async () => {
     engine.stopEngine()
     // 关闭现有窗口，避免 retry 时叠加出多个窗口
@@ -457,7 +551,13 @@ if (!app.requestSingleInstanceLock()) {
   seedDshHome()
   app.config = loadConfig()
 
-  const missing = validateHarness(app.config.harnessRoot)
+  // 自愈：上次更新被中断（新源码无构建产物）时，自动恢复旁边的 .dsh-fallback-* 备份
+  let missing = validateHarness(app.config.harnessRoot)
+  if (missing.length > 0) {
+    if (recoverInterruptedUpdate(app.config.harnessRoot)) {
+      missing = validateHarness(app.config.harnessRoot)
+    }
+  }
   if (missing.length > 0) {
     const list = missing.map(([label, p]) => `  · ${label}: ${p}`).join('\n')
     dialog.showErrorBox(
@@ -468,6 +568,8 @@ if (!app.requestSingleInstanceLock()) {
     )
     app.exit(1)
   } else {
+    // 引擎尽早启动：与 Electron 初始化并行（boot 里 startEngine 幂等，不会重复拉起）
+    engine.startEngine({ harnessRoot: app.config.harnessRoot, nodePath: app.config.nodePath })
     app.on('second-instance', () => {
       if (mainWindow !== null && !mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) mainWindow.restore()
@@ -487,11 +589,19 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   app.on('window-all-closed', () => {
+    // 更新进行中不允许退出（中断会留下无构建产物的新源码）
+    if (updating) return
     stopServer()
     app.quit()
   })
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    // 更新进行中拦截退出请求：更新完成/失败后自然会退出流程
+    if (updating) {
+      event.preventDefault()
+      log('更新进行中，已拦截退出请求')
+      return
+    }
     stopServer()
   })
 }

@@ -37,6 +37,16 @@ contextBridge.exposeInMainWorld('desktop', {
   restart: () => ipcRenderer.invoke('desktop:restart'),
   /** 读取 API 用量聚合（今天 / 过去七天 / 过去一个月）。 */
   usage: () => ipcRenderer.invoke('desktop:usage'),
+  /** 检查 DeepSeek Harness 上游是否有更新。 */
+  checkUpdate: () => ipcRenderer.invoke('desktop:check-update'),
+  /** 应用更新（拉源码、替换、重装依赖并重建）。返回 {ok, version?, error?}。 */
+  applyUpdate: () => ipcRenderer.invoke('desktop:apply-update'),
+  /** 订阅更新进度（main 推送 'desktop:update-status'，参数为说明字符串）。 */
+  onUpdateStatus: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('desktop:update-status', listener)
+    return () => ipcRenderer.removeListener('desktop:update-status', listener)
+  },
   /** 打开 API 用量窗口。 */
   openUsage: () => ipcRenderer.invoke('desktop:open-usage'),
   /** 在资源管理器中打开指定数据目录（session / skills / agents / plugins / logs）。 */

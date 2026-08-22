@@ -32,11 +32,13 @@
   var chartInner = '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'
   var folderInner = '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'
   var powerInner = '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>'
+  var refreshInner = '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>'
 
   var slidersSvg = icon(slidersInner)
   var chartSvg = icon(chartInner)
   var folderSvg = icon(folderInner)
   var powerSvg = icon(powerInner)
+  var refreshSvg = icon(refreshInner)
 
   var btn = document.createElement('button')
   btn.id = 'dsdesk-settings-btn'
@@ -58,6 +60,11 @@
   }
   function fire(promise) {
     if (promise && typeof promise.catch === 'function') promise.catch(function () {})
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    })
   }
 
   function item(label, svg, onClick) {
@@ -90,8 +97,127 @@
   menu.appendChild(item('打开 Agent 预设目录', folderSvg, function () { fire(window.desktop.openDir('agents')); closeMenu() }))
   menu.appendChild(item('打开插件目录', folderSvg, function () { fire(window.desktop.openDir('plugins')); closeMenu() }))
   menu.appendChild(sep())
+  menu.appendChild(item('检查更新', refreshSvg, function () { closeMenu(); checkUpdateFlow() }))
+  menu.appendChild(sep())
   menu.appendChild(item('退出', powerSvg, function () { fire(window.desktop.quit()) }))
 
+
+  /* ---------------- 检查更新覆盖层 ---------------- */
+
+  function updOverlay() {
+    var old = document.getElementById('dsdesk-upd-overlay')
+    if (old) old.remove()
+    var mask = document.createElement('div')
+    mask.id = 'dsdesk-upd-overlay'
+    mask.className = 'dsdesk-upd-mask'
+    var panel = document.createElement('div')
+    panel.className = 'dsdesk-upd'
+    var head = document.createElement('div')
+    head.className = 'dsdesk-upd-title'
+    head.id = 'dsdesk-upd-title'
+    var body = document.createElement('div')
+    body.className = 'dsdesk-upd-body'
+    body.id = 'dsdesk-upd-body'
+    panel.appendChild(head)
+    panel.appendChild(body)
+    mask.appendChild(panel)
+    document.body.appendChild(mask)
+    return { mask, panel, head, body }
+  }
+  function updClose(mask) { if (mask) mask.remove() }
+  function updBtn(label, primary, onClick) {
+    var b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'dsdesk-upd-btn' + (primary ? ' dsdesk-upd-btn-primary' : '')
+    b.textContent = label
+    b.addEventListener('click', onClick)
+    return b
+  }
+
+  function checkUpdateFlow() {
+    var ov = updOverlay()
+    ov.head.textContent = '检查更新'
+    ov.body.innerHTML = '<div class="dsdesk-upd-status">正在检查 DeepSeek Harness 上游更新…</div>'
+    window.desktop.checkUpdate().then(function (a) {
+      if (!a || !a.ok) {
+        ov.body.innerHTML = '<div class="dsdesk-upd-status dsdesk-upd-err">检查更新失败：' + ((a && a.error) || '无法连接 GitHub') + '</div>'
+        ov.body.appendChild(updBtn('关闭', false, function () { updClose(ov.mask) }))
+        return
+      }
+      if (!a.updateAvailable) {
+        ov.body.innerHTML = '<div class="dsdesk-upd-status">已是最新版本（' + escapeHtml(a.localVersion) + '）</div>'
+        ov.body.appendChild(updBtn('关闭', false, function () { updClose(ov.mask) }))
+        return
+      }
+      var r = a.remote
+      ov.body.innerHTML =
+        '<div class="dsdesk-upd-new">发现新版本</div>' +
+        '<div class="dsdesk-upd-line">本地 <b>' + escapeHtml(a.localVersion) + '</b> → 最新 <b>' + escapeHtml(r.version) + '</b></div>' +
+        '<div class="dsdesk-upd-sub">' + escapeHtml(r.date || '') + '</div>' +
+        '<div class="dsdesk-upd-msg">' + escapeHtml(r.message || '') + '</div>' +
+        '<div class="dsdesk-upd-warn">更新将拉取最新源码、替换本地引擎并重新构建，全程不可中断，构建约需数分钟。</div>'
+      var btnRow = document.createElement('div')
+      btnRow.className = 'dsdesk-upd-row'
+      btnRow.appendChild(updBtn('取消', false, function () { updClose(ov.mask) }))
+      btnRow.appendChild(updBtn('立即更新', true, function () { runUpdateFlow(ov) }))
+      ov.body.appendChild(btnRow)
+    }).catch(function (e) {
+      ov.body.innerHTML = '<div class="dsdesk-upd-status dsdesk-upd-err">检查更新失败：' + escapeHtml(e.message) + '</div>'
+      ov.body.appendChild(updBtn('关闭', false, function () { updClose(ov.mask) }))
+    })
+  }
+
+  function runUpdateFlow(ov) {
+    ov.head.textContent = '更新中'
+    ov.body.innerHTML =
+      '<div class="dsdesk-upd-status" id="dsdesk-upd-status">准备更新…</div>' +
+      '<div class="dsdesk-upd-bar"><i></i></div>' +
+      '<div class="dsdesk-upd-note">更新期间请勿关闭应用。完成后会自动重启引擎。</div>'
+    var statusEl = document.getElementById('dsdesk-upd-status')
+    var unsub = window.desktop.onUpdateStatus(function (payload) {
+      if (typeof payload === 'string') {
+        if (payload.indexOf('step:') === 0) {
+          var phase = payload.replace('step:', '')
+          var label = {
+            begin: '准备更新…', download: '从 GitHub 下载源码…', extract: '解压源码…',
+            backup: '备份旧版本…', replace: '替换本地源码…', git: '登记源码版本信息…',
+            install: '安装依赖（pnpm install）…', build: '构建（pnpm run build）…',
+            done: '更新完成！', fail: '更新失败',
+          }[phase] || '处理中…'
+          if (statusEl) statusEl.textContent = label
+        } else if (statusEl) {
+          statusEl.textContent = payload
+        }
+      } else if (payload && payload.message && statusEl) {
+        statusEl.textContent = payload.message
+        if (payload.step === 'fail') ov.body.classList.add('dsdesk-upd-fail')
+      }
+    })
+    window.desktop.applyUpdate().then(function (r) {
+      if (unsub) unsub()
+      if (r && r.ok) {
+        if (statusEl) statusEl.textContent = '更新完成：' + (r.version || '') + '，正在重启引擎…'
+        // 主进程会自动载入新 UI，这里等待片刻后关闭覆盖层
+        setTimeout(function () { updClose(ov.mask) }, 1500)
+      } else {
+        ov.body.classList.add('dsdesk-upd-fail')
+        if (statusEl) statusEl.textContent = '更新失败：' + ((r && r.error) || '未知错误')
+        var row = document.createElement('div')
+        row.className = 'dsdesk-upd-row'
+        row.appendChild(updBtn('重试', false, function () { updClose(ov.mask); checkUpdateFlow() }))
+        row.appendChild(updBtn('关闭', false, function () { updClose(ov.mask) }))
+        ov.body.appendChild(row)
+      }
+    }).catch(function (e) {
+      if (unsub) unsub()
+      ov.body.classList.add('dsdesk-upd-fail')
+      if (statusEl) statusEl.textContent = '更新失败：' + e.message
+      var row = document.createElement('div')
+      row.className = 'dsdesk-upd-row'
+      row.appendChild(updBtn('关闭', false, function () { updClose(ov.mask) }))
+      ov.body.appendChild(row)
+    })
+  }
 
   var root = document.createElement('div')
   root.id = 'dsdesk-settings-root'

@@ -106,10 +106,18 @@ function startEngine(options) {
   writeState()
 
   const env = { ...process.env, DSH_HOME: dshHome }
-  log(`启动引擎: ${options.nodePath} ${bin} web --port 0  (DSH_HOME=${dshHome})`)
+  // V8 字节码缓存：dsh CLI 是模块重度应用，缓存编译产物可显著加速重复启动（Node 22.1+）
+  try {
+    const cacheDir = path.join(APP_ROOT, 'logs', '.node-compile-cache')
+    mkdirSync(cacheDir, { recursive: true })
+    env.NODE_COMPILE_CACHE = cacheDir
+  } catch { /* 缓存目录创建失败则不启用 */ }
+  log(`启动引擎: ${options.nodePath} ${bin} web --port 0 --no-open  (DSH_HOME=${dshHome})`)
 
   const outFd = openSync(ENGINE_LOG, 'a')
-  engineProc = spawn(options.nodePath, [bin, 'web', '--port', '0'], {
+  // The Electron shell owns the web view.  Prevent dsh from also opening the
+  // system browser on every desktop launch.
+  engineProc = spawn(options.nodePath, [bin, 'web', '--port', '0', '--no-open'], {
     cwd: options.harnessRoot,
     env,
     stdio: ['ignore', outFd, outFd],
@@ -119,7 +127,7 @@ function startEngine(options) {
   engineState.pid = engineProc.pid
   writeState()
 
-  pollTimer = setInterval(drainEngineLog, 150)
+  pollTimer = setInterval(drainEngineLog, 100)
   pollTimer.unref?.()
 
   engineProc.on('error', (error) => {

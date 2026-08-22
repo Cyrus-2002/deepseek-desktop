@@ -139,7 +139,139 @@ body[data-ds-dark-theme] .dsdesk-settings-sep {
 @media (prefers-reduced-motion: reduce) {
   .dsdesk-settings-btn,
   .dsdesk-settings-menu,
-  .dsdesk-settings-item {
+  .dsdesk-settings-item,
+  .dsdesk-upd-mask,
+  .dsdesk-upd {
     transition: none !important;
+    animation: none !important;
   }
+}
+
+/* ---------------- 检查更新覆盖层 ---------------- */
+
+.dsdesk-upd-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483002;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: dsdeskFade 0.2s ease both;
+}
+.dsdesk-upd {
+  width: 400px;
+  max-width: calc(100vw - 48px);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  animation: dsdeskPop 0.24s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+  overflow: hidden;
+}
+.dsdesk-upd-title {
+  padding: 16px 18px 6px;
+  font-size: 15px;
+  font-weight: 650;
+  color: #1c2333;
+  letter-spacing: 0.2px;
+}
+.dsdesk-upd-body {
+  padding: 10px 18px 16px;
+}
+.dsdesk-upd-new {
+  font-size: 15px;
+  font-weight: 650;
+  color: #4d6bfd;
+  margin-bottom: 8px;
+}
+.dsdesk-upd-line { font-size: 13px; color: #1c2333; margin-bottom: 4px; }
+.dsdesk-upd-sub { font-size: 11px; color: #9aa3bb; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+.dsdesk-upd-msg {
+  font-size: 13px;
+  color: #3a4156;
+  line-height: 1.6;
+  background: rgba(15, 23, 42, 0.04);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  max-height: 72px;
+  overflow: auto;
+}
+.dsdesk-upd-warn {
+  font-size: 12px;
+  color: #a06a1c;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 10px;
+  padding: 8px 10px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.dsdesk-upd-status { font-size: 13px; color: #3a4156; line-height: 1.6; }
+.dsdesk-upd-err { color: #d94747; font-weight: 600; }
+.dsdesk-upd-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(77, 107, 253, 0.14);
+  overflow: hidden;
+  margin-top: 14px;
+}
+.dsdesk-upd-bar i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, #4d6bfd, transparent);
+  animation: updSlide 1.5s ease-in-out infinite;
+}
+.dsdesk-upd-note { font-size: 11px; color: #9aa3bb; margin-top: 10px; line-height: 1.5; }
+.dsdesk-upd-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.dsdesk-upd-btn {
+  height: 34px;
+  padding: 0 18px;
+  border-radius: 11px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #ffffff;
+  color: #1c2333;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.dsdesk-upd-btn:hover { background: rgba(15, 23, 42, 0.04); }
+.dsdesk-upd-btn:active { transform: scale(0.97); }
+.dsdesk-upd-btn-primary {
+  background: #4d6bfd;
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+}
+.dsdesk-upd-btn-primary:hover { background: #3f5ce6; }
+
+body[data-ds-dark-theme] .dsdesk-upd {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(22, 25, 36, 0.9);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+body[data-ds-dark-theme] .dsdesk-upd-title { color: #e7eaf3; }
+body[data-ds-dark-theme] .dsdesk-upd-line { color: #e7eaf3; }
+body[data-ds-dark-theme] .dsdesk-upd-msg { background: rgba(255, 255, 255, 0.05); color: #cdd4e6; }
+body[data-ds-dark-theme] .dsdesk-upd-status { color: #cdd4e6; }
+body[data-ds-dark-theme] .dsdesk-upd-btn { background: rgba(255, 255, 255, 0.06); color: #e7eaf3; border-color: rgba(255, 255, 255, 0.1); }
+body[data-ds-dark-theme] .dsdesk-upd-btn:hover { background: rgba(255, 255, 255, 0.1); }
+
+@keyframes dsdeskFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dsdeskPop {
+  from { opacity: 0; transform: scale(0.94) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes updSlide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
 }

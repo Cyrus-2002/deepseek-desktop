@@ -47,5 +47,8 @@
       "icon": "assets/icon.png",
       "signAndEditExecutable": false
     }
+  },
+  "dependencies": {
+    "tar": "^6.2.1"
   }
 }

@@ -69,6 +69,20 @@ html {
   scroll-behavior: smooth;
 }
 
+/* 侧边栏品牌：把回退名 "DSH Local Build" 显示为 DeepSeek，隐藏构建哈希徽标 */
+[class*='fallbackBrandName'] {
+  font-size: 0 !important;
+}
+[class*='fallbackBrandName']::after {
+  content: 'DeepSeek';
+  font-size: 17px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+[class*='buildRevision'] {
+  display: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

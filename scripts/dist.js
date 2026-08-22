@@ -12,7 +12,7 @@
 'use strict'
 
 const { spawnSync } = require('node:child_process')
-const { existsSync, mkdirSync, renameSync, readdirSync, readFileSync, writeFileSync } = require('node:fs')
+const { existsSync, mkdirSync, renameSync, readdirSync, readFileSync, writeFileSync, rmSync } = require('node:fs')
 const path = require('node:path')
 
 const ROOT = path.join(__dirname, '..')
@@ -83,6 +83,10 @@ function restore() {
   return n
 }
 
+function removeEmptyBackup() {
+  try { rmSync(BACKUP, { recursive: true, force: true }) } catch { /* 下次打包会覆盖 */ }
+}
+
 const moved = backup()
 console.log(`[dist] 已备份用户数据 ${moved} 项 -> dist/.userdata-backup`)
 
@@ -103,11 +107,13 @@ let restored = 0
 if (result.status === 0) {
   setExeIcon()
   restored = restore()
+  removeEmptyBackup()
   console.log(`[dist] 已恢复用户数据 ${restored} 项 -> dist/win-unpacked`)
 } else {
   // 打包失败也要恢复，避免数据滞留在 backup
   if (existsSync(UNPACKED)) {
     restored = restore()
+    removeEmptyBackup()
     console.log(`[dist] 打包失败，已恢复用户数据 ${restored} 项`)
   } else {
     console.log('[dist] 打包失败；用户数据仍在 dist/.userdata-backup，可手动移回')
