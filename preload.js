@@ -47,6 +47,12 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on('desktop:update-status', listener)
     return () => ipcRenderer.removeListener('desktop:update-status', listener)
   },
+  /** 订阅应用菜单命令（如 'check-update'，转发给注入层覆盖层处理）。 */
+  onMenuCommand: (callback) => {
+    const listener = (_event, command) => callback(command)
+    ipcRenderer.on('desktop:menu-command', listener)
+    return () => ipcRenderer.removeListener('desktop:menu-command', listener)
+  },
   /** 打开 API 用量窗口。 */
   openUsage: () => ipcRenderer.invoke('desktop:open-usage'),
   /** 在资源管理器中打开指定数据目录（session / skills / agents / plugins / logs）。 */

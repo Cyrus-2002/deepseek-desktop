@@ -11,6 +11,10 @@
  * API key 全部落在 deepseek-desktop/ 目录下（session/、skills/、.agent-presets/、
  * profiles/、settings.yaml、.credentials.yaml）。
  *
+ * 并发约定：engineProc/engineState/pollTimer 属于“当前进程实例”。
+ * 所有事件回调先比对捕获的 proc 与当前 engineProc，旧进程的迟到事件
+ * （重启后晚退）一律忽略，避免清掉新进程的句柄与轮询。
+ *
  * 两种用法：
  *   1) require('./engine.js') → { startEngine(config), stopEngine(), getState(), procAlive() }
  *   2) CLI：node scripts/engine.js（供启动脚本 / Edge App 模式使用）
@@ -27,11 +31,14 @@ const LOG_DIR = path.join(APP_ROOT, 'logs')
 const ENGINE_LOG = path.join(LOG_DIR, 'engine.log')
 const STATE_FILE = path.join(LOG_DIR, 'engine.json')
 const READY_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/
+const STOP_TIMEOUT_MS = 5000
 
 let engineProc = null
 let engineState = { pid: null, url: null, dshHome: null, startedAt: null, ready: false }
 let tailOffset = 0
 let pollTimer = null
+// 必须在使用之前声明：startEngine 注册的 exit 回调会读取它（CLI 模式下同步场景）
+let isCliMode = false
 
 function procAlive() {
   return engineProc !== null && engineProc.exitCode === null && engineProc.signalCode === null
@@ -85,6 +92,15 @@ function drainEngineLog() {
   }
 }
 
+/** 释放当前进程实例的句柄与轮询（仅当 proc 仍是当前实例时生效）。 */
+function releaseProc(proc) {
+  if (engineProc !== proc) return
+  if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null }
+  engineProc = null
+  engineState = { pid: null, url: null, dshHome: engineState.dshHome, startedAt: engineState.startedAt, ready: false }
+  writeState()
+}
+
 /**
  * 启动 dsh web 引擎。
  * @param {object} options
@@ -117,55 +133,79 @@ function startEngine(options) {
   const outFd = openSync(ENGINE_LOG, 'a')
   // The Electron shell owns the web view.  Prevent dsh from also opening the
   // system browser on every desktop launch.
-  engineProc = spawn(options.nodePath, [bin, 'web', '--port', '0', '--no-open'], {
+  const proc = spawn(options.nodePath, [bin, 'web', '--port', '0', '--no-open'], {
     cwd: options.harnessRoot,
     env,
     stdio: ['ignore', outFd, outFd],
     windowsHide: true,
   })
   closeSync(outFd)
-  engineState.pid = engineProc.pid
+  engineProc = proc
+  engineState.pid = proc.pid
   writeState()
 
   pollTimer = setInterval(drainEngineLog, 100)
   pollTimer.unref?.()
 
-  engineProc.on('error', (error) => {
+  // spawn 失败（如 nodePath 无效）只触发 error 不触发 exit：同样按实例清理，
+  // 否则句柄残留会让 startEngine 的幂等守卫永远拒绝重启。
+  proc.on('error', (error) => {
     log(`引擎进程错误: ${error.message}`)
-    engineState.ready = false
-    writeState()
+    releaseProc(proc)
   })
-  engineProc.on('exit', (code, signal) => {
+  proc.on('exit', (code, signal) => {
     log(`引擎退出: code=${code} signal=${signal}`)
-    clearInterval(pollTimer)
-    pollTimer = null
-    engineProc = null
-    engineState.ready = false
-    engineState.url = null
-    writeState()
+    releaseProc(proc)
     if (isCliMode && code !== 0 && code !== null) process.exitCode = code
   })
-  return { proc: engineProc, dshHome }
+  return { proc, dshHome }
 }
 
-function stopEngine() {
+/**
+ * 停止引擎并等待进程真正退出。
+ * Windows 上用 taskkill /T /F 树杀（dsh 可能派生自己的子进程，裸 kill 会留孤儿）；
+ * 其余平台先 SIGTERM，超时后 SIGKILL。
+ * @param {number} [timeoutMs]
+ * @returns {Promise<void>} 进程退出（或超时强杀）后 resolve。
+ */
+async function stopEngine(timeoutMs = STOP_TIMEOUT_MS) {
+  const proc = engineProc
   if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null }
-  if (engineProc !== null && !engineProc.killed) {
+
+  // 并发调用只发一次停止指令（quit 路径与 restart 路径可能先后触发）
+  if (proc !== null && !proc.killed && !proc._dshStopRequested) {
+    proc._dshStopRequested = true
     log('正在停止引擎…')
-    engineProc.kill()
-    engineProc = null
+    if (process.platform === 'win32') {
+      const taskkill = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe')
+      const killer = spawn(taskkill, ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      killer.on('error', () => { try { proc.kill() } catch { /* 已退出 */ } })
+    } else {
+      proc.kill('SIGTERM')
+    }
   }
-  engineState.ready = false
-  writeState()
+
+  if (proc !== null && proc.exitCode === null && proc.signalCode === null) {
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        try { proc.kill('SIGKILL') } catch { /* 已退出 */ }
+        resolve()
+      }, timeoutMs)
+      timer.unref?.()
+      proc.once('exit', () => { clearTimeout(timer); resolve() })
+    })
+  }
+
+  releaseProc(proc)
 }
 
-let isCliMode = false
+module.exports = { startEngine, stopEngine, getState, procAlive }
 
 if (require.main === module) {
   isCliMode = true
   const configPath = path.join(APP_ROOT, 'config.json')
   let config = {}
-  try { config = JSON.parse(readFileSync(configPath, 'utf8')) } catch { /* 默认 */ }
+  try { config = JSON.parse(readFileSync(configPath, 'utf8')) } catch { config = {} }
   const harnessRoot = config.harnessRoot || path.join(APP_ROOT, '..', 'deepseek-harness-master')
   const nodePath = process.env.DSH_DESKTOP_NODE || config.nodePath || 'node'
 
@@ -181,7 +221,7 @@ if (require.main === module) {
 
   startEngine({ harnessRoot, nodePath })
 
-  const shutdown = (code) => { stopEngine(); process.exit(code) }
+  const shutdown = (code) => { stopEngine().finally(() => process.exit(code)) }
   process.on('SIGTERM', () => shutdown(0))
   process.on('SIGINT', () => shutdown(0))
 
@@ -197,5 +237,3 @@ if (require.main === module) {
     watcher.unref?.()
   }
 }
-
-module.exports = { startEngine, stopEngine, getState, procAlive, STATE_FILE }

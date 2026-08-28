@@ -92,6 +92,8 @@ npm run dist
 | `nodePath`    | -   | `node` 可执行文件路径，缺省走 PATH |
 | `window`      | -   | 窗口大小 / 最小尺寸，桌面版会记住你的习惯 |
 
+> 配置支持带 `//` 注释的 JSONC；解析失败时会用默认配置启动但**绝不回写覆盖**你的文件（放心手动改）。
+
 ---
 
 ## 🗂 目录结构
@@ -104,9 +106,10 @@ deepseek-desktop/
 ├── package.json                # 依赖与 electron-builder 配置
 ├── cordis.patch.yml            # 全局 Cordis 补丁：会话落 session/、原始 JSONL
 ├── scripts/
-│   ├── engine.js               # 拉起 dsh web 子进程，嗅探就绪 URL
-│   ├── usage.js                # 从 session/ 重建用量快照（今天/7天/30天）
-│   ├── updater.js              # 检查更新：拉 GitHub 最新 harness 源码并重建
+│   ├── engine.js               # 拉起 dsh web 子进程，嗅探就绪 URL（Windows 树杀、防重启竞态）
+│   ├── usage.js                # 从 session/ 重建用量快照（今天/7天/30天，mtime 增量解析）
+│   ├── updater.js              # 检查更新：拉 GitHub 最新 harness 源码并重建（超时/限流/跨盘/脏检查）
+│   ├── sync-presets.js         # 把 .agent-presets/_shared/ 的共享工具面同步进 sd-* 预设
 │   └── dist.js                 # 打包脚本（保数据：先备份用户数据再重建）
 ├── assets/                     # 鲸鱼图标、启动页、主题 CSS/JS、用量面板
 │   ├── icon.png / icon.ico
@@ -120,6 +123,7 @@ deepseek-desktop/
 │   └── example-skill/SKILL.md
 ├── .agent-presets/             # 📁 Agent 预设（自带 example + sd-* 团队预设）
 │   ├── README.md
+│   ├── _shared/                # sd-* 共享工具面（scripts/sync-presets.js 的权威来源）
 │   ├── example/                # 复制内置预设得到的范例
 │   ├── sd-architect/
 │   ├── sd-dev/
@@ -144,21 +148,24 @@ deepseek-desktop/
 
 ## 🛠 设置入口
 
-- 侧边栏底部「⚙️ 设置」按钮 → 打开 dsh 设置面板（模型 / 通用 / 插件 / Agent 预设）
-- 菜单「**设置 → API 用量**」或 `Ctrl+Shift+U` → 用量面板（今天 / 7 天 / 30 天）
-- 菜单「**设置**」下可一键打开：会话目录、Skills 目录、Agent 预设目录、插件目录
+- 侧边栏底部「⚙️ 设置」按钮 → 打开 dsh 设置面板（模型 / 通用 / 插件 / Agent 预设）；也可用右下角可拖动的悬浮按钮菜单
+- 菜单「**设置 → API 用量**」或 `Ctrl+Shift+U` → 用量面板（今天 / 7 天 / 30 天；支持手动刷新 + 回到窗口自动刷新 + 暗色模式）
+- 菜单「**设置 → 检查更新**」与应用菜单同源，和悬浮菜单共用一个更新弹层
+- 菜单「**文件**」下可一键打开：会话目录、Skills 目录、日志目录；「设置」下打开 Agent 预设 / 插件目录
+- 引擎意外退出时页面顶部会出现红色横幅，一键「重新启动」即可恢复
 - 帮助菜单 → 关于 / DeepSeek Harness 文档
 
 ---
 
 ## ⬆️ 检查更新
 
-悬浮设置按钮 -> 「检查更新」：
+悬浮设置按钮 / 应用菜单「设置 → 检查更新」：
 
-- 自动对比本地与 GitHub 上游（deepseek-ai/deepseek-harness）的版本号
-- 发现新版本时展示版本差异与最新提交信息，确认后一键更新：下载源码 tarball -> 备份旧版 -> 覆盖 `harnessRoot`（默认 `../deepseek-harness-master`）-> `pnpm install` + `pnpm run build` -> 自动重启引擎
-- 更新失败自动恢复旧版本，绝不留半成品
-- 需要 `pnpm` 可用（构建依赖）；CLI 手动触发：`node scripts/updater.js`（`--dry-run` 仅下载解压验证）
+- 优先按已装源码 SHA 对比 GitHub 上游（deepseek-ai/deepseek-harness），版本号兜底；发现新版本时展示版本差异与最新提交信息
+- 确认后一键更新：下载源码 tarball（流式写盘 + 下载百分比）-> 备份旧版 -> 覆盖 `harnessRoot`（默认 `../deepseek-harness-master`，支持跨盘移动）-> `pnpm install` + `pnpm run build` -> 自动重启引擎
+- 更新失败自动恢复旧版本，绝不留半成品；启动时还能自愈上次被中断的更新
+- 网络请求全部带超时，GitHub 限流（403）会给出可读提示；本地 harness 有未提交改动时会提前警告
+- 需要 `pnpm` 可用（构建依赖）；CLI 手动触发：`node scripts/updater.js`（`--dry-run` 仅下载解压验证；本地有未提交改动时需 `--force` 确认）
 
 ---
 

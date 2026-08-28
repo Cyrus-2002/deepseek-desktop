@@ -9,6 +9,12 @@
  *   2) `computeUsageFromSnapshots(usageRoot)` 折叠 snapshots 内的 usage，
  *      产出 buckets、total。
  *
+ * 性能约定：
+ *   - 会话文件按 (mtime, size) 做解析缓存，未变化的文件不重复解析；
+ *     超出最长时间窗（30 天）的历史事件不进入缓存与快照。
+ *   - 快照采用「先清空、追加写入」模式：窗口内事件再多也只保留追加，
+ *     缓冲满 500 条即落盘，内存占用有界。
+ *
  * 用量记录不可从应用内删除（无清除功能）；用户可自行手动清空 usage/ 文件夹，
  * 下次打开面板时会从 session/ 聊天日志自动重建完整记录。
  * 原始会话日志（session/）只读，永不修改。
@@ -16,7 +22,7 @@
 
 'use strict'
 
-const { readdirSync, readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync } = require('node:fs')
+const { readdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, statSync, mkdirSync, unlinkSync } = require('node:fs')
 const path = require('node:path')
 
 const WINDOWS = [
@@ -24,6 +30,9 @@ const WINDOWS = [
   { id: 'last7days',  spanDays: 7,  granularity: 'day'  },
   { id: 'last30days', spanDays: 30, granularity: 'day'  },
 ]
+const MAX_WINDOW_SPAN_DAYS = Math.max(...WINDOWS.map((w) => w.spanDays))
+const FLUSH_EVERY = 500
+const PARSE_CACHE_MAX_FILES = 5000
 
 /* ========== 时间工具 ========== */
 
@@ -80,12 +89,46 @@ function listSessionFiles(root) {
   return out
 }
 
+/* ========== 会话事件解析（带增量缓存） ========== */
+
+// file -> { mtimeMs, size, events: [{ t, line }] }；line 为快照行的预序列化 JSON
+const parseCache = new Map()
+
+function extractEvents(text) {
+  const horizon = Date.now() - (MAX_WINDOW_SPAN_DAYS + 5) * 86400000
+  const events = []
+  // 不按行号跳过首行：逐行按 type 过滤（首行可能是 header，也可能是事件）
+  for (const line of text.split('\n')) {
+    if (line.length === 0) continue
+    let event
+    try { event = JSON.parse(line) } catch { continue }
+    if (event.type !== 'assistant/message') continue
+    if (typeof event.time !== 'number') continue
+    if (event.time < horizon) continue // 超出所有时间窗，不写入也不缓存
+    events.push({ t: event.time, line: JSON.stringify({ t: event.time, data: event.data }) })
+  }
+  return events
+}
+
+function loadSessionEvents(file) {
+  let st
+  try { st = statSync(file) } catch { parseCache.delete(file); return [] }
+  const cached = parseCache.get(file)
+  if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.events
+  let text
+  try { text = readFileSync(file, 'utf8') } catch { return [] }
+  const events = extractEvents(text)
+  if (parseCache.size >= PARSE_CACHE_MAX_FILES) parseCache.clear()
+  parseCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, events })
+  return events
+}
+
 /* ========== Snapshots 写入 ========== */
 
 /**
- * 扫描 sessionRoot，按 3 个时间窗把每个 assistant/message 事件写入
+ * 扫描 sessionRoot，按 3 个时间窗把每个 assistant/message 事件追加写入
  * usageRoot/snapshots/<window>.jsonl（每次先清空旧文件再重建，保证与
- * session/ 全量一致）。
+ * session/ 全量一致；追加式落盘避免大批量时缓冲覆盖丢数据）。
  * @returns { rebuilt: boolean, counts: { [window]: number } }
  */
 function recordSnapshots(usageRoot, sessionRoot) {
@@ -98,52 +141,50 @@ function recordSnapshots(usageRoot, sessionRoot) {
 
   const todayStart = startOfDay(Date.now())
 
-  // window 定义：[startMs, endMsExclusive)
-  const windowRanges = {
-    today:     { start: todayStart,  end: todayStart + 86400000 },
-    last7days: { start: todayStart - 6 * 86400000,  end: todayStart + 86400000 },
-    last30days:{ start: todayStart - 29 * 86400000, end: todayStart + 86400000 },
+  // window 定义统一从 WINDOWS 派生：[startMs, endMsExclusive)
+  const windowRanges = {}
+  for (const w of WINDOWS) {
+    windowRanges[w.id] = { start: todayStart - (w.spanDays - 1) * 86400000, end: todayStart + 86400000 }
   }
 
-  const counts = { today: 0, last7days: 0, last30days: 0 }
-  const streams = {}
+  const counts = {}
+  const pending = {}
   for (const id of Object.keys(windowRanges)) {
     try { unlinkSync(path.join(snapshotDir, id + '.jsonl')) } catch { /* 不存在也行 */ }
-    streams[id] = []
+    counts[id] = 0
+    pending[id] = []
   }
 
-  function flush(id) {
-    if (streams[id].length === 0) return
-    writeFileSync(path.join(snapshotDir, id + '.jsonl'), streams[id].join('\n') + '\n')
-    counts[id] = streams[id].length
-    streams[id] = []
+  const flushAppend = (id) => {
+    if (pending[id].length === 0) return
+    try {
+      appendFileSync(path.join(snapshotDir, id + '.jsonl'), pending[id].join('\n') + '\n')
+      counts[id] += pending[id].length
+    } catch (error) {
+      logSnapshotError(error)
+    }
+    pending[id] = []
   }
 
   for (const file of listSessionFiles(sessionRoot)) {
-    let text
-    try { text = readFileSync(file, 'utf8') } catch { continue }
-    const lines = text.split('\n')
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i]
-      if (line.length === 0) continue
-      let event
-      try { event = JSON.parse(line) } catch { continue }
-      if (event.type !== 'assistant/message') continue
-      if (typeof event.time !== 'number') continue
-      const t = event.time
-      const compact = JSON.stringify({ t, data: event.data })
-      for (const id of Object.keys(windowRanges)) {
-        const r = windowRanges[id]
-        if (t >= r.start && t < r.end) {
-          streams[id].push(compact)
-          if (streams[id].length >= 500) flush(id)
+    for (const { t, line } of loadSessionEvents(file)) {
+      for (const [id, range] of Object.entries(windowRanges)) {
+        if (t >= range.start && t < range.end) {
+          pending[id].push(line)
+          if (pending[id].length >= FLUSH_EVERY) flushAppend(id)
         }
       }
     }
   }
-  for (const id of Object.keys(windowRanges)) flush(id)
+  for (const id of Object.keys(windowRanges)) flushAppend(id)
 
   return { rebuilt: true, counts }
+}
+
+function logSnapshotError(error) {
+  try {
+    appendFileSync(path.join(__dirname, '..', 'logs', 'desktop.log'), `[usage] 快照写入失败: ${error.message}\n`)
+  } catch { /* 日志失败不阻塞 */ }
 }
 
 /* ========== Snapshots 读取与折叠 ========== */

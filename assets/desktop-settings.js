@@ -5,10 +5,12 @@
  * 不会被 dsh 的 React 重渲染清除。
  *
  * 行为：
- *   - 点击（位移 < 5px）→ 展开/收起菜单。
- *   - 拖动（位移 ≥ 5px）→ 按钮跟随光标，菜单收起；视口边界 clamp；松开后停留。
- *   - 位置持久化到 localStorage，重启后保持。
+ *   - 点击（位移 < 5px）→ 展开/收起菜单；支持方向键在菜单项间移动。
+ *   - 拖动（位移 ≥ 5px）→ 按钮跟随光标，菜单收起；视口边界 clamp；松开后停留并持久化。
+ *   - 位置持久化到 localStorage，重启后保持；窗口缩放只做 clamp 不改写保存值。
  *   - 菜单显示方向按按钮在视口的位置自适应（上方/下方），避免溢出。
+ *   - 引擎崩溃时显示顶部横幅并提供一键重启（desktop:engine-exited）。
+ *   - 应用菜单「检查更新」通过 desktop:menu-command 打开同一个更新覆盖层。
  */
 ;(function () {
   'use strict'
@@ -58,12 +60,31 @@
     menu.classList.remove('open')
     btn.setAttribute('aria-expanded', 'false')
   }
-  function fire(promise) {
-    if (promise && typeof promise.catch === 'function') promise.catch(function () {})
-  }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    })
+  }
+  /** 轻量 toast：异步失败与静默操作的用户反馈。 */
+  function toast(message, isError) {
+    var t = document.getElementById('dsdesk-toast')
+    if (!t) {
+      t = document.createElement('div')
+      t.id = 'dsdesk-toast'
+      t.className = 'dsdesk-toast'
+      t.setAttribute('role', 'status')
+      document.body.appendChild(t)
+    }
+    t.textContent = message
+    t.classList.toggle('dsdesk-toast-err', !!isError)
+    t.classList.add('show')
+    clearTimeout(t._timer)
+    t._timer = setTimeout(function () { t.classList.remove('show') }, 2600)
+  }
+  function fire(promise, label) {
+    if (!promise || typeof promise.catch !== 'function') return
+    promise.catch(function (e) {
+      toast((label || '操作') + '失败：' + (e && e.message ? e.message : '未知错误'), true)
     })
   }
 
@@ -83,23 +104,40 @@
     return d
   }
 
+  var rootHolder = { root: null }
+  /** 查找 dsh 自身的设置入口：排除桌面壳自己的悬浮按钮，按可信度依次尝试。 */
+  function findDshTrigger() {
+    var selectors = [
+      'button[aria-label*="设置" i]',
+      'button[title*="设置" i]',
+      'button[aria-haspopup="dialog"]',
+    ]
+    for (var i = 0; i < selectors.length; i++) {
+      var candidates = document.querySelectorAll(selectors[i])
+      for (var j = 0; j < candidates.length; j++) {
+        if (!rootHolder.root || !rootHolder.root.contains(candidates[j])) return candidates[j]
+      }
+    }
+    return null
+  }
   function dshSettings() {
-    var trigger = document.querySelector('button[aria-haspopup="dialog"]')
-    if (trigger) trigger.click()
     closeMenu()
+    var trigger = findDshTrigger()
+    if (trigger) { trigger.click(); return }
+    toast('未找到 dsh 设置入口，请从侧边栏打开', true)
   }
 
   menu.appendChild(item('打开设置', slidersSvg, dshSettings))
-  menu.appendChild(item('API 用量', chartSvg, function () { fire(window.desktop.openUsage()); closeMenu() }))
+  menu.appendChild(item('API 用量', chartSvg, function () { fire(window.desktop.openUsage(), '打开用量窗口'); closeMenu() }))
   menu.appendChild(sep())
-  menu.appendChild(item('打开会话目录', folderSvg, function () { fire(window.desktop.openDir('session')); closeMenu() }))
-  menu.appendChild(item('打开 Skills 目录', folderSvg, function () { fire(window.desktop.openDir('skills')); closeMenu() }))
-  menu.appendChild(item('打开 Agent 预设目录', folderSvg, function () { fire(window.desktop.openDir('agents')); closeMenu() }))
-  menu.appendChild(item('打开插件目录', folderSvg, function () { fire(window.desktop.openDir('plugins')); closeMenu() }))
+  menu.appendChild(item('打开会话目录', folderSvg, function () { fire(window.desktop.openDir('session'), '打开目录'); closeMenu() }))
+  menu.appendChild(item('打开 Skills 目录', folderSvg, function () { fire(window.desktop.openDir('skills'), '打开目录'); closeMenu() }))
+  menu.appendChild(item('打开 Agent 预设目录', folderSvg, function () { fire(window.desktop.openDir('agents'), '打开目录'); closeMenu() }))
+  menu.appendChild(item('打开插件目录', folderSvg, function () { fire(window.desktop.openDir('plugins'), '打开目录'); closeMenu() }))
   menu.appendChild(sep())
   menu.appendChild(item('检查更新', refreshSvg, function () { closeMenu(); checkUpdateFlow() }))
   menu.appendChild(sep())
-  menu.appendChild(item('退出', powerSvg, function () { fire(window.desktop.quit()) }))
+  menu.appendChild(item('退出', powerSvg, function () { fire(window.desktop.quit(), '退出') }))
 
 
   /* ---------------- 检查更新覆盖层 ---------------- */
@@ -110,8 +148,15 @@
     var mask = document.createElement('div')
     mask.id = 'dsdesk-upd-overlay'
     mask.className = 'dsdesk-upd-mask'
+    mask.setAttribute('data-busy', '0')
+    // 非更新进行中时点击遮罩空白处可关闭
+    mask.addEventListener('click', function (e) {
+      if (e.target === mask && mask.getAttribute('data-busy') !== '1') mask.remove()
+    })
     var panel = document.createElement('div')
     panel.className = 'dsdesk-upd'
+    panel.setAttribute('role', 'dialog')
+    panel.setAttribute('aria-labelledby', 'dsdesk-upd-title')
     var head = document.createElement('div')
     head.className = 'dsdesk-upd-title'
     head.id = 'dsdesk-upd-title'
@@ -140,7 +185,7 @@
     ov.body.innerHTML = '<div class="dsdesk-upd-status">正在检查 DeepSeek Harness 上游更新…</div>'
     window.desktop.checkUpdate().then(function (a) {
       if (!a || !a.ok) {
-        ov.body.innerHTML = '<div class="dsdesk-upd-status dsdesk-upd-err">检查更新失败：' + ((a && a.error) || '无法连接 GitHub') + '</div>'
+        ov.body.innerHTML = '<div class="dsdesk-upd-status dsdesk-upd-err">检查更新失败：' + escapeHtml((a && a.error) || '无法连接 GitHub') + '</div>'
         ov.body.appendChild(updBtn('关闭', false, function () { updClose(ov.mask) }))
         return
       }
@@ -155,6 +200,9 @@
         '<div class="dsdesk-upd-line">本地 <b>' + escapeHtml(a.localVersion) + '</b> → 最新 <b>' + escapeHtml(r.version) + '</b></div>' +
         '<div class="dsdesk-upd-sub">' + escapeHtml(r.date || '') + '</div>' +
         '<div class="dsdesk-upd-msg">' + escapeHtml(r.message || '') + '</div>' +
+        (a.dirty
+          ? '<div class="dsdesk-upd-warn">注意：本地 harness 有未提交改动，更新会覆盖这些改动。</div>'
+          : '') +
         '<div class="dsdesk-upd-warn">更新将拉取最新源码、替换本地引擎并重新构建，全程不可中断，构建约需数分钟。</div>'
       var btnRow = document.createElement('div')
       btnRow.className = 'dsdesk-upd-row'
@@ -168,6 +216,7 @@
   }
 
   function runUpdateFlow(ov) {
+    ov.mask.setAttribute('data-busy', '1') // 更新进行中：禁止 Escape / 点击遮罩关闭
     ov.head.textContent = '更新中'
     ov.body.innerHTML =
       '<div class="dsdesk-upd-status" id="dsdesk-upd-status">准备更新…</div>' +
@@ -186,7 +235,7 @@
           }[phase] || '处理中…'
           if (statusEl) statusEl.textContent = label
         } else if (statusEl) {
-          statusEl.textContent = payload
+          statusEl.textContent = payload // 下载百分比等中间进度
         }
       } else if (payload && payload.message && statusEl) {
         statusEl.textContent = payload.message
@@ -200,6 +249,7 @@
         // 主进程会自动载入新 UI，这里等待片刻后关闭覆盖层
         setTimeout(function () { updClose(ov.mask) }, 1500)
       } else {
+        ov.mask.setAttribute('data-busy', '0')
         ov.body.classList.add('dsdesk-upd-fail')
         if (statusEl) statusEl.textContent = '更新失败：' + ((r && r.error) || '未知错误')
         var row = document.createElement('div')
@@ -210,6 +260,7 @@
       }
     }).catch(function (e) {
       if (unsub) unsub()
+      ov.mask.setAttribute('data-busy', '0')
       ov.body.classList.add('dsdesk-upd-fail')
       if (statusEl) statusEl.textContent = '更新失败：' + e.message
       var row = document.createElement('div')
@@ -219,11 +270,36 @@
     })
   }
 
+  /* ---------------- 引擎断开横幅（一键重启） ---------------- */
+
+  function showEngineBanner() {
+    if (document.getElementById('dsdesk-engine-banner')) return
+    var bar = document.createElement('div')
+    bar.id = 'dsdesk-engine-banner'
+    bar.className = 'dsdesk-engine-banner'
+    var text = document.createElement('span')
+    text.className = 'dsdesk-engine-text'
+    text.textContent = '引擎已断开，会话暂时无法响应'
+    var restart = document.createElement('button')
+    restart.type = 'button'
+    restart.className = 'dsdesk-engine-restart'
+    restart.textContent = '重新启动'
+    restart.addEventListener('click', function () {
+      restart.disabled = true
+      text.textContent = '正在重启引擎…'
+      fire(window.desktop.restart(), '重启引擎')
+    })
+    bar.appendChild(text)
+    bar.appendChild(restart)
+    document.body.appendChild(bar)
+  }
+
   var root = document.createElement('div')
   root.id = 'dsdesk-settings-root'
   root.appendChild(btn)
   root.appendChild(menu)
   document.body.appendChild(root)
+  rootHolder.root = root
 
   /* ---------------- 位置持久化 ---------------- */
 
@@ -239,7 +315,7 @@
   function defaultPos(btnW, btnH, w, h) {
     // 默认：左下角，dsh 内置设置按钮（侧边栏底部）的右侧一点、垂直对齐；
     // 内置按钮找不到时兜底到窗口左下角。
-    var trigger = document.querySelector('button[aria-haspopup="dialog"]')
+    var trigger = findDshTrigger()
     if (trigger) {
       var r = trigger.getBoundingClientRect()
       return clamp({ left: r.right + 12, top: r.top + (r.height - btnH) / 2 }, btnW, btnH, w, h)
@@ -364,7 +440,8 @@
   // 默认位置或上次保存位置
   applyPos(loadPos(btn.offsetWidth || 48, btn.offsetHeight || 48))
 
-  // 视口变化时重新 clamp（窗口缩放/全屏切换）
+  // 视口变化时只重新 clamp（窗口缩放/全屏切换）；
+  // 不在此处保存位置——临时缩小窗口不应永久改写用户保存的坐标。
   window.addEventListener('resize', function () {
     var vp = viewport()
     var pos = clamp({
@@ -372,7 +449,6 @@
       top: parseFloat(btn.style.top) || 0,
     }, btn.offsetWidth, btn.offsetHeight, vp.w, vp.h)
     applyPos(pos)
-    savePos(pos)
     if (menu.classList.contains('open')) positionMenu()
   })
 
@@ -393,11 +469,42 @@
     btn.setAttribute('aria-expanded', String(open))
   })
 
+  // 菜单键盘导航：方向键移动、Escape 返回按钮焦点
+  menu.addEventListener('keydown', function (e) {
+    var items = menu.querySelectorAll('.dsdesk-settings-item')
+    if (!items.length) return
+    var idx = Array.prototype.indexOf.call(items, document.activeElement)
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      items[(idx + 1 + items.length) % items.length].focus()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      items[(idx - 1 + items.length) % items.length].focus()
+    }
+  })
+
   // 全局点击关闭菜单
   document.addEventListener('click', function (e) {
     if (!root.contains(e.target)) closeMenu()
   })
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') closeMenu()
+    if (e.key === 'Escape') {
+      closeMenu()
+      // 更新覆盖层：非更新进行中可 Escape 关闭
+      var mask = document.getElementById('dsdesk-upd-overlay')
+      if (mask && mask.getAttribute('data-busy') !== '1') mask.remove()
+      if (menu.classList.contains('open') || document.activeElement === btn) btn.focus()
+    }
   })
+
+  // 引擎崩溃横幅
+  if (window.desktop && typeof window.desktop.onEngineExited === 'function') {
+    window.desktop.onEngineExited(function () { showEngineBanner() })
+  }
+  // 应用菜单 → 桌面壳覆盖层
+  if (window.desktop && typeof window.desktop.onMenuCommand === 'function') {
+    window.desktop.onMenuCommand(function (command) {
+      if (command === 'check-update') checkUpdateFlow()
+    })
+  }
 })()

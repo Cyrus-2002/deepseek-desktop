@@ -275,3 +275,89 @@ body[data-ds-dark-theme] .dsdesk-upd-btn:hover { background: rgba(255, 255, 255,
   0% { transform: translateX(-120%); }
   100% { transform: translateX(320%); }
 }
+
+/* ---------------- 轻量 toast（异步操作反馈） ---------------- */
+
+.dsdesk-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  z-index: 2147483003;
+  max-width: min(420px, calc(100vw - 48px));
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(28, 31, 44, 0.92);
+  color: #f2f4fb;
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.3);
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+.dsdesk-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.dsdesk-toast-err { background: rgba(153, 40, 40, 0.94); }
+
+body[data-ds-dark-theme] .dsdesk-toast {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(40, 44, 60, 0.96);
+}
+
+/* ---------------- 引擎断开横幅（一键重启） ---------------- */
+
+.dsdesk-engine-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2147483002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: rgba(153, 40, 40, 0.94);
+  color: #fff;
+  font-size: 13px;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.25);
+  animation: dsdeskDrop 0.24s ease both;
+}
+.dsdesk-engine-restart {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: transparent;
+  color: #fff;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.dsdesk-engine-restart:hover { background: rgba(255, 255, 255, 0.16); }
+.dsdesk-engine-restart:active { transform: scale(0.96); }
+.dsdesk-engine-restart:disabled { opacity: 0.6; cursor: default; }
+
+body[data-ds-dark-theme] .dsdesk-engine-banner { background: rgba(120, 30, 30, 0.96); }
+
+@keyframes dsdeskDrop {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------------- 键盘可达性 ---------------- */
+
+.dsdesk-settings-btn:focus-visible,
+.dsdesk-settings-item:focus-visible,
+.dsdesk-upd-btn:focus-visible,
+.dsdesk-engine-restart:focus-visible {
+  outline: 2px solid #4d6bfd;
+  outline-offset: 2px;
+}

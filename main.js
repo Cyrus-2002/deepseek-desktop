@@ -59,6 +59,43 @@ function log(message) {
  * 配置
  * ------------------------------------------------------------------ */
 
+/** 剥离 JSONC 注释（README 示例配置允许行注释与块注释；字符串字面量内的注释不受影响）。 */
+function stripJsonComments(text) {
+  let out = ''
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inString) {
+      out += c
+      if (escaped) escaped = false
+      else if (c === '\\') escaped = true
+      else if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') { inString = true; out += c; continue }
+    if (c === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++
+      out += '\n'
+      continue
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      i += 2
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++
+      i++
+      continue
+    }
+    out += c
+  }
+  return out
+}
+
+/**
+ * 加载 config.json。健壮性约定：
+ *   - 支持带注释的 JSONC；
+ *   - 解析失败只用默认值并保留原文件（绝不回写覆盖，避免用户配置丢失）；
+ *   - 仅在首次运行（文件不存在）时生成默认配置。
+ */
 function loadConfig() {
   const configPath = path.join(APP_ROOT, 'config.json')
   const defaults = {
@@ -66,19 +103,25 @@ function loadConfig() {
     nodePath: process.env.DSH_DESKTOP_NODE || 'node',
     window: { width: 1280, height: 820, minWidth: 960, minHeight: 640 },
   }
+  const existed = existsSync(configPath)
   let user = {}
-  try {
-    user = JSON.parse(readFileSync(configPath, 'utf8'))
-  } catch { /* 首次运行：生成默认配置 */ }
+  if (existed) {
+    try {
+      user = JSON.parse(stripJsonComments(readFileSync(configPath, 'utf8')))
+      if (user === null || typeof user !== 'object') user = {}
+    } catch (error) {
+      log(`config.json 解析失败（文件保持原样，请手动修复），本次使用默认配置: ${error.message}`)
+    }
+  }
   const config = { ...defaults, ...user, window: { ...defaults.window, ...(user.window || {}) } }
   // harnessRoot 允许相对路径（相对应用目录），此处解析为绝对路径，
   // 避免打包后 cwd 变化导致引擎找不到。
   if (config.harnessRoot && !path.isAbsolute(config.harnessRoot)) {
     config.harnessRoot = path.resolve(APP_ROOT, config.harnessRoot)
   }
-  try {
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n')
-  } catch { /* 只读时忽略 */ }
+  if (!existed) {
+    try { writeFileSync(configPath, JSON.stringify(defaults, null, 2) + '\n') } catch { /* 只读时忽略 */ }
+  }
   return config
 }
 
@@ -92,6 +135,8 @@ function validateHarness(root) {
 
 /** 更新进行中标志：为 true 时拦截退出，避免中断留下无构建产物的新源码。 */
 let updating = false
+/** 更新期间用户关闭全部窗口：更新结束后自动退出而不是留一个无界面进程。 */
+let quitAfterUpdate = false
 
 /**
  * 自愈被中断的更新：harnessRoot 缺构建产物、且旁边存在 .dsh-fallback-* 备份时，
@@ -164,13 +209,21 @@ function seedDshHome() {
 let serverUrl = null
 let intentionalStop = false
 
+/** 引擎本机页面判定：严格按 origin 比较（startsWith 会放过 127.0.0.1:30801 这类端口前缀混淆）。 */
+function isLocalPage(url) {
+  if (serverUrl === null) return false
+  try {
+    return new URL(url, serverUrl).origin === new URL(serverUrl).origin
+  } catch { return false }
+}
+
 function waitForEngineReady(timeoutMs) {
   const deadline = Date.now() + timeoutMs
   return new Promise((resolve, reject) => {
     const tick = () => {
       const state = engine.getState()
       if (state.ready && state.url !== null) return resolve(state.url)
-      if (Date.now() > deadline) return reject(new Error('等待引擎就绪超时（60s）'))
+      if (Date.now() > deadline) return reject(new Error(`等待引擎就绪超时（${Math.round(timeoutMs / 1000)}s）`))
       setTimeout(tick, 150)
     }
     tick()
@@ -179,7 +232,7 @@ function waitForEngineReady(timeoutMs) {
 
 function stopServer() {
   intentionalStop = true
-  engine.stopEngine()
+  return engine.stopEngine()
 }
 
 /* ------------------------------------------------------------------ *
@@ -247,7 +300,7 @@ function createWindow(config) {
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, url) => {
-    if (serverUrl !== null && url.startsWith(serverUrl)) return
+    if (isLocalPage(url)) return
     event.preventDefault()
     if (/^https?:/i.test(url)) void shell.openExternal(url)
   })
@@ -256,7 +309,7 @@ function createWindow(config) {
   })
   window.webContents.on('did-fail-load', (_event, code, description, validatedURL) => {
     log(`页面加载失败: ${code} ${description} ${validatedURL}`)
-    if (serverUrl !== null && validatedURL.startsWith(serverUrl)) {
+    if (isLocalPage(validatedURL)) {
       window.webContents.send('desktop:error', `页面加载失败（${code} ${description}）`)
     }
   })
@@ -264,7 +317,7 @@ function createWindow(config) {
   window.webContents.on('did-finish-load', () => {
     injectTheme(window)
     // 仅在 dsh 主界面注入常驻设置按钮（splash/usage 页不注入）。
-    if (serverUrl !== null && window.webContents.getURL().startsWith(serverUrl)) {
+    if (isLocalPage(window.webContents.getURL())) {
       injectSettingsButton(window)
     }
   })
@@ -275,7 +328,7 @@ function createWindow(config) {
   return window
 }
 
-/** 平滑切换：让启动页淡出，再加载真实 UI。 */
+/** 平滑切换：让启动页淡出（splash CSS 淡出 0.28s），再加载真实 UI。 */
 function fadeSplashThenLoad(window, url) {
   const fade = () => {
     try {
@@ -285,15 +338,17 @@ function fadeSplashThenLoad(window, url) {
     } catch { /* 页面可能已卸载 */ }
   }
   fade()
-  // 200ms 淡出后切换文档；即便淡出失败也照常切换
+  // 等淡出完成后切换文档；即便淡出失败也照常切换
   setTimeout(() => {
     if (window.isDestroyed()) return
     serverUrl = url
     window.loadURL(url)
-  }, 220)
+  }, 300)
 }
 
 async function boot(config) {
+  // 全新启动：恢复引擎崩溃监视（boot 失败清理路径会置 true）
+  intentionalStop = false
   // Start the local service before constructing the splash window.  Window
   // creation and Chromium initialization can now overlap dsh's module load.
   let window = null
@@ -326,6 +381,9 @@ async function boot(config) {
     monitor.unref?.()
   } catch (error) {
     log(`启动失败: ${error.message}`)
+    // 启动链路失败（如等待就绪超时）时回收引擎，避免留下僵尸进程；
+    // 用户点击启动页「重试」会重新完整走 boot。
+    stopServer()
     const activeWindow = window || createWindow(config)
     if (activeWindow.isDestroyed()) return
     activeWindow.webContents.send('desktop:error', `引擎启动失败：${error.message}`)
@@ -430,8 +488,16 @@ function installMenu(window) {
       label: '设置',
       submenu: [
         { label: 'API 用量', accelerator: 'CmdOrCtrl+Shift+U', click: () => openUsageWindow() },
-        { label: '打开会话目录', click: () => revealInExplorer(path.join(APP_ROOT, 'session')) },
-        { label: '打开 Skills 目录', click: () => revealInExplorer(path.join(APP_ROOT, 'skills')) },
+        {
+          label: '检查更新',
+          click: () => {
+            // 复用注入层的更新覆盖层 UI（桌面壳的悬浮菜单与应用菜单同一入口）
+            if (mainWindow !== null && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('desktop:menu-command', 'check-update')
+            }
+          },
+        },
+        { type: 'separator' },
         { label: '打开 Agent 预设目录', click: () => revealInExplorer(path.join(APP_ROOT, '.agent-presets')) },
         { label: '打开插件目录', click: () => revealInExplorer(path.join(APP_ROOT, 'profiles', 'web')) },
       ],
@@ -509,15 +575,14 @@ function registerIpc(config) {
         remote,
         progress,
       })
-      // 更新完成后重启引擎并载入新 UI
+      // 更新完成后重启引擎并载入新 UI（复用启动页淡出流程）
       if (win !== null && !win.isDestroyed()) showLoading(win)
       try {
         engine.startEngine({ harnessRoot: config.harnessRoot, nodePath: config.nodePath })
         const url = await waitForEngineReady(120_000)
         if (win !== null && !win.isDestroyed()) {
           win.webContents.send('desktop:ready', { url })
-          await new Promise((resolve) => setTimeout(resolve, 220))
-          win.loadURL(url)
+          fadeSplashThenLoad(win, url)
         }
       } catch (e2) {
         log(`更新后引擎重启失败: ${e2.message}`)
@@ -530,13 +595,18 @@ function registerIpc(config) {
       return { ok: false, error: error.message }
     } finally {
       updating = false
+      // 更新期间用户关闭了所有窗口：完成后按用户意愿退出，避免留下无界面的僵尸进程
+      if (quitAfterUpdate) {
+        await stopServer()
+        app.exit(0)
+      }
     }
   })
   ipcMain.handle('desktop:restart', async () => {
-    engine.stopEngine()
+    // 等引擎真正退出（含 Windows 树杀）再重启，消除新旧进程竞态
+    await engine.stopEngine()
     // 关闭现有窗口，避免 retry 时叠加出多个窗口
     if (mainWindow !== null && !mainWindow.isDestroyed()) mainWindow.destroy()
-    await new Promise((resolve) => setTimeout(resolve, 300))
     await boot(config)
   })
 }
@@ -589,8 +659,12 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   app.on('window-all-closed', () => {
-    // 更新进行中不允许退出（中断会留下无构建产物的新源码）
-    if (updating) return
+    // 更新进行中不允许退出（中断会留下无构建产物的新源码）；
+    // 记住用户意愿，更新结束后自动退出。
+    if (updating) {
+      quitAfterUpdate = true
+      return
+    }
     stopServer()
     app.quit()
   })

@@ -18,6 +18,27 @@
       --accent: #ff8a3d;
       --hover: rgba(15, 23, 42, 0.04);
       --active: rgba(15, 23, 42, 0.08);
+      --menu-bg: rgba(255, 255, 255, 0.78);
+      --tip-bg: rgba(28, 35, 51, 0.92);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-1: #14161f;
+        --bg-2: #0f1118;
+        --ink: #e7eaf3;
+        --dim: #a6adc4;
+        --faint: #6f7690;
+        --card: #1c1f2b;
+        --border: rgba(255, 255, 255, 0.08);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+        --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.28);
+        --accent: #ffa05e;
+        --hover: rgba(255, 255, 255, 0.06);
+        --active: rgba(255, 255, 255, 0.1);
+        --menu-bg: rgba(30, 33, 46, 0.86);
+        --tip-bg: rgba(226, 231, 244, 0.95);
+      }
+      .chart-tip { color: #1c2333 !important; }
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
@@ -29,6 +50,8 @@
       -webkit-font-smoothing: antialiased;
       overflow: auto;
     }
+    body.loading .stats .value { color: var(--faint); }
+    body.loading .chart-card { opacity: 0.55; }
 
     /* ---------- 顶部筛选条 ---------- */
     .filters {
@@ -39,6 +62,7 @@
       gap: 14px;
       animation: fadeUp 0.4s cubic-bezier(0.22, 0.9, 0.36, 1) both;
     }
+    .filters .left, .filters .right { display: flex; align-items: center; gap: 10px; }
     .pill {
       display: inline-flex;
       align-items: center;
@@ -53,11 +77,43 @@
       font-family: inherit;
       cursor: pointer;
       box-shadow: var(--shadow-sm);
-      transition: background-color 0.18s ease, transform 0.1s ease;
+      transition: background-color 0.18s ease, transform 0.1s ease, opacity 0.18s ease;
     }
     .pill:hover { background: var(--hover); }
     .pill:active { transform: scale(0.97); }
+    .pill:disabled { opacity: 0.55; cursor: default; }
     .pill svg { width: 12px; height: 12px; opacity: 0.55; }
+    .pill #refreshIcon { width: 14px; height: 14px; }
+    body.loading #refreshIcon { animation: spin 0.9s linear infinite; }
+
+    /* 时间下拉菜单 */
+    .time-menu {
+      position: fixed;
+      min-width: 140px;
+      padding: 5px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--menu-bg);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+      z-index: 100;
+    }
+    .time-menu button {
+      display: block;
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: var(--ink);
+      font-size: 13px;
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+    }
+    .time-menu button:hover { background: var(--hover); }
+    .time-menu button.on { background: rgba(77, 107, 253, 0.10); color: #4d6bfd; font-weight: 600; }
 
     /* ---------- 统计大数字卡 ---------- */
     .stats {
@@ -83,6 +139,7 @@
       letter-spacing: -0.5px;
       font-variant-numeric: tabular-nums;
       line-height: 1.1;
+      transition: color 0.2s ease;
     }
     .stat .hint { font-size: 12px; color: var(--faint); margin-top: 6px; }
 
@@ -94,6 +151,7 @@
       box-shadow: var(--shadow-md);
       opacity: 0;
       animation: fadeUp 0.5s 0.22s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+      transition: opacity 0.2s ease;
     }
     .chart-head {
       display: flex;
@@ -151,7 +209,7 @@
       z-index: 10;
       padding: 8px 12px;
       border-radius: 10px;
-      background: rgba(28, 35, 51, 0.92);
+      background: var(--tip-bg);
       color: #ffffff;
       font-size: 12px;
       line-height: 1.6;
@@ -173,9 +231,12 @@
       animation: barIn 0.55s cubic-bezier(0.22, 0.9, 0.36, 1) forwards;
     }
     .chart-axis {
-      stroke: rgba(15, 23, 42, 0.08);
+      stroke: rgba(15, 23, 42, 0.12);
       stroke-width: 1;
       stroke-dasharray: 3 4;
+    }
+    @media (prefers-color-scheme: dark) {
+      .chart-axis { stroke: rgba(255, 255, 255, 0.1); }
     }
     .chart-axis-label {
       fill: var(--faint);
@@ -204,7 +265,8 @@
     .chart-empty .tip { font-size: 13px; text-align: center; line-height: 1.6; }
 
     /* ---------- 通用 ---------- */
-    .err { color: #d94747; font-size: 12px; padding: 6px 4px; }
+    .err { color: #d94747; font-size: 12px; padding: 6px 4px; min-height: 24px; }
+    button:focus-visible { outline: 2px solid #4d6bfd; outline-offset: 2px; }
 
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(8px); }
@@ -214,6 +276,7 @@
       from { opacity: 0; transform: scaleY(0.6); transform-origin: bottom; }
       to { opacity: 1; transform: scaleY(1); transform-origin: bottom; }
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation: none !important;
@@ -223,24 +286,32 @@
   </style>
 </head>
 <body>
-  <!-- 顶部：仅 Time 下拉（用量永久记录，不提供删除） -->
+  <!-- 顶部：时间下拉 + 刷新（用量永久记录，不提供删除） -->
   <div class="filters">
-    <button class="pill" id="timePill">
-      <span id="timeLabel">今天</span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-    </button>
+    <div class="left">
+      <button class="pill" id="timePill" aria-haspopup="menu" aria-expanded="false">
+        <span id="timeLabel">今天</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </div>
+    <div class="right">
+      <button class="pill" id="refreshBtn">
+        <svg id="refreshIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <span id="refreshLabel">刷新</span>
+      </button>
+    </div>
   </div>
 
   <!-- 2 张大数字 -->
   <div class="stats">
     <div class="stat">
       <div class="label">API requests</div>
-      <div class="value" id="statRequests">0</div>
+      <div class="value" id="statRequests">—</div>
       <div class="hint" id="statRequestsHint">累计请求数</div>
     </div>
     <div class="stat">
       <div class="label">Tokens</div>
-      <div class="value" id="statTokens">0</div>
+      <div class="value" id="statTokens">—</div>
       <div class="hint" id="statTokensHint">—</div>
     </div>
   </div>
@@ -258,13 +329,15 @@
     <div class="chart-x-labels" id="xLabels"></div>
   </div>
 
-  <div class="err" id="err"></div>
+  <div class="err" id="err" role="alert"></div>
 
   <script>
     /* ========== 状态 ========== */
     let DATA = null
     let RANGE = 'today'        // 'today' | 'last7days' | 'last30days'
     let METRIC = 'tokens'      // 'tokens' | 'requests'
+    let lastLoad = 0           // 供焦点自动刷新节流
+    let loading = false
 
     const RANGE_LABEL = {
       today: '今天',
@@ -297,26 +370,16 @@
     function closeOpen() {
       if (openMenu && openMenu.parentNode) openMenu.parentNode.removeChild(openMenu)
       openMenu = null
+      timePill.setAttribute('aria-expanded', 'false')
     }
     function showTimeMenu() {
       closeOpen()
       const r = timePill.getBoundingClientRect()
       const menu = document.createElement('div')
-      menu.style.cssText = [
-        'position: fixed',
-        'top: ' + (r.bottom + 6) + 'px',
-        'left: ' + r.left + 'px',
-        'min-width: 140px',
-        'padding: 5px',
-        'border-radius: 12px',
-        'border: 1px solid rgba(15,23,42,0.08)',
-        'background: rgba(255,255,255,0.78)',
-        'backdrop-filter: blur(20px) saturate(180%)',
-        '-webkit-backdrop-filter: blur(20px) saturate(180%)',
-        'box-shadow: 0 12px 32px rgba(15,23,42,0.18)',
-        'z-index: 100',
-        'font-family: inherit',
-      ].join(';')
+      menu.className = 'time-menu'
+      menu.setAttribute('role', 'menu')
+      menu.style.top = r.bottom + 6 + 'px'
+      menu.style.left = r.left + 'px'
       const opts = [
         ['today', '今天'],
         ['last7days', '过去七天'],
@@ -324,21 +387,9 @@
       ]
       opts.forEach(([k, label]) => {
         const b = document.createElement('button')
-        b.style.cssText = [
-          'display: block', 'width: 100%', 'padding: 8px 12px',
-          'border: none', 'background: transparent',
-          'color: #1c2333', 'font-size: 13px',
-          'border-radius: 8px', 'cursor: pointer', 'text-align: left',
-          'font-family: inherit',
-        ].join(';')
+        b.setAttribute('role', 'menuitem')
         b.textContent = label
-        if (k === RANGE) {
-          b.style.background = 'rgba(77,107,253,0.10)'
-          b.style.color = '#4d6bfd'
-          b.style.fontWeight = '600'
-        }
-        b.addEventListener('mouseenter', () => { if (k !== RANGE) b.style.background = 'rgba(15,23,42,0.04)' })
-        b.addEventListener('mouseleave', () => { if (k !== RANGE) b.style.background = 'transparent' })
+        if (k === RANGE) b.classList.add('on')
         b.addEventListener('click', () => {
           RANGE = k
           timeLabel.textContent = label
@@ -348,10 +399,24 @@
         menu.appendChild(b)
       })
       document.body.appendChild(menu)
+      const mw = menu.getBoundingClientRect()
+      // 右侧溢出时右对齐到按钮
+      const margin = 6
+      if (r.left + mw.width > window.innerWidth - margin) {
+        menu.style.left = Math.max(margin, window.innerWidth - mw.width - margin) + 'px'
+      }
       openMenu = menu
+      timePill.setAttribute('aria-expanded', 'true')
+      const first = menu.querySelector('button')
+      if (first) first.focus()
     }
     timePill.addEventListener('click', (e) => { e.stopPropagation(); openMenu ? closeOpen() : showTimeMenu() })
-    document.addEventListener('click', () => closeOpen())
+    document.addEventListener('click', (e) => { if (openMenu && !openMenu.contains(e.target)) closeOpen() })
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && openMenu) { closeOpen(); timePill.focus() }
+    })
+    // 下拉展开期间窗口尺寸变化 → 直接关闭（临时菜单，不值得重新定位）
+    window.addEventListener('resize', closeOpen)
 
     /* ========== 主指标分段控件 ========== */
     document.getElementById('segMini').addEventListener('click', (ev) => {
@@ -406,7 +471,7 @@
     let LAST = { buckets: [], kind: 'day' }   // 供 tooltip 查询最近一次渲染的数据
 
     function renderChart() {
-      const { buckets, kind, source } = getMainBuckets()
+      const { buckets, kind } = getMainBuckets()
       const el = document.getElementById('mainChart')
       const xl = document.getElementById('xLabels')
       // 标题副文本
@@ -467,8 +532,8 @@
       svg += '</svg>'
       el.innerHTML = '<div class="chart-tip" id="chartTip"></div>' + svg
 
-      // X 轴标签：5 个等距
-      const positions = [0, 0.33, 0.66, 1]
+      // X 轴标签：5 个等距位置
+      const positions = [0, 0.25, 0.5, 0.75, 1]
       const labels = positions.map(p => {
         if (kind === 'hour') {
           if (p === 0) return '00:00'
@@ -522,16 +587,40 @@
       renderChart()
     }
 
+    function setLoading(on) {
+      loading = on
+      document.body.classList.toggle('loading', on)
+      const btn = document.getElementById('refreshBtn')
+      btn.disabled = on
+      document.getElementById('refreshLabel').textContent = on ? '刷新中…' : '刷新'
+    }
+
     /* ========== 数据加载 ========== */
-    async function load() {
+    async function load({ silent = false } = {}) {
+      if (loading) return
+      const errEl = document.getElementById('err')
       try {
         if (!window.desktop) throw new Error('桌面桥不可用')
-        DATA = await window.desktop.usage()
+        if (!silent) setLoading(true)
+        const d = await window.desktop.usage()
+        DATA = d
+        // 主进程快照/聚合失败时也会返回 error 字段：不能把失败渲染成 0
+        errEl.textContent = (d && d.error) ? '读取用量失败：' + d.error : ''
+        if (!d || !d.error) lastLoad = Date.now()
         renderAll()
       } catch (e) {
-        document.getElementById('err').textContent = '读取用量失败：' + e.message
+        errEl.textContent = '读取用量失败：' + e.message
+      } finally {
+        setLoading(false)
       }
     }
+    document.getElementById('refreshBtn').addEventListener('click', () => load())
+
+    // 窗口重获焦点时静默刷新（节流 15s，聊天中切过来看一眼就是最新数据）
+    window.addEventListener('focus', () => {
+      if (Date.now() - lastLoad > 15000) load({ silent: true })
+    })
+
     load()
   </script>
 </body>

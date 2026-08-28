@@ -92,7 +92,9 @@ console.log(`[dist] 已备份用户数据 ${moved} 项 -> dist/.userdata-backup`
 
 const env = {
   ...process.env,
-  ELECTRON_CACHE: process.env.ELECTRON_CACHE || 'D:/ai_agent/electron-cache',
+  // Electron 下载缓存：优先用环境变量；未设置时落到项目内目录（可重复使用、随仓库清理），
+  // 不再硬编码开发者本机路径。
+  ELECTRON_CACHE: process.env.ELECTRON_CACHE || path.join(ROOT, '.electron-cache'),
   // 无代码签名证书时跳过签名发现，避免误触签名步骤
   CSC_IDENTITY_AUTO_DISCOVERY: 'false',
 }
