@@ -272,7 +272,7 @@ function createWindow(config) {
     minHeight: config.window.minHeight,
     title: APP_NAME,
     icon: path.join(RESOURCES, 'assets', 'icon.png'),
-    backgroundColor: '#f7f9fc',
+    backgroundColor: '#070b18', // 与深空极光启动页同底色，消除开窗瞬间白闪
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -328,22 +328,21 @@ function createWindow(config) {
   return window
 }
 
-/** 平滑切换：让启动页淡出（splash CSS 淡出 0.28s），再加载真实 UI。 */
+/** 平滑切换：启动页收到 desktop:ready 后自行「进度冲 100% → 复合淡出」（约 0.8s）；
+ *  这里只负责兜底补一次 fade 类（幂等）并延迟切换文档。 */
 function fadeSplashThenLoad(window, url) {
-  const fade = () => {
+  setTimeout(() => {
     try {
       window.webContents.executeJavaScript(
         `document.body && document.body.classList.add('ds-splash-fade')`,
       ).catch(() => {})
     } catch { /* 页面可能已卸载 */ }
-  }
-  fade()
-  // 等淡出完成后切换文档；即便淡出失败也照常切换
+  }, 480)
   setTimeout(() => {
     if (window.isDestroyed()) return
     serverUrl = url
     window.loadURL(url)
-  }, 300)
+  }, 820)
 }
 
 async function boot(config) {

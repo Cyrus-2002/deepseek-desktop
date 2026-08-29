@@ -5,225 +5,427 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
   <title>DeepSeek Desktop</title>
   <style>
+    /* 深空极光启动页：固定深色底 + 极光光晕 + 玻璃光环鲸鱼 + 终端状态行 + 分段伪进度。
+       动画全部走 transform/opacity（GPU 合成）；reduced-motion 下静态呈现。 */
     :root {
       --ds-blue: #4d6bfd;
-      --ink: #1c2333;
-      --ink-dim: #8b94a8;
+      --ds-blue-soft: #8fb0ff;
+      --violet: #7c5cff;
+      --teal: #2dd4bf;
+      --ink: #e8edff;
+      --ink-dim: #8b94b8;
+      --ink-faint: rgba(139, 148, 184, 0.45);
+      --base-1: #070b18;
+      --base-2: #0a1024;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
     body {
       font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
       color: var(--ink);
-      background:
-        radial-gradient(760px 520px at 50% 16%, rgba(77, 107, 253, 0.12) 0%, rgba(77, 107, 253, 0) 62%),
-        linear-gradient(180deg, #fbfcfe 0%, #f3f6fc 48%, #edf1f9 100%);
+      background: linear-gradient(180deg, var(--base-1) 0%, var(--base-2) 100%);
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      transition: opacity 0.28s ease;
       -webkit-font-smoothing: antialiased;
+      transition: opacity 0.4s ease, transform 0.4s ease, filter 0.4s ease;
     }
-    body.ds-splash-fade { opacity: 0; }
+    /* 复合退场：透明 + 轻缩放 + 轻模糊（main.js 会在 ready 后延迟切换文档） */
+    body.ds-splash-fade {
+      opacity: 0;
+      transform: scale(0.985);
+      filter: blur(6px);
+      pointer-events: none;
+    }
+
+    /* ---------- 背景：极光光晕 + 星点 ---------- */
+
+    .aurora {
+      position: fixed;
+      border-radius: 50%;
+      pointer-events: none;
+      will-change: transform;
+    }
+    .aurora-1 {
+      width: 62vmax; height: 62vmax;
+      left: -14vmax; top: -20vmax;
+      background: radial-gradient(circle at 50% 50%, rgba(77, 107, 253, 0.17), rgba(77, 107, 253, 0) 62%);
+      animation: drift1 26s ease-in-out infinite alternate;
+    }
+    .aurora-2 {
+      width: 56vmax; height: 56vmax;
+      right: -16vmax; top: -10vmax;
+      background: radial-gradient(circle at 50% 50%, rgba(124, 92, 255, 0.13), rgba(124, 92, 255, 0) 62%);
+      animation: drift2 32s ease-in-out infinite alternate;
+    }
+    .aurora-3 {
+      width: 52vmax; height: 52vmax;
+      left: 18vmax; bottom: -24vmax;
+      background: radial-gradient(circle at 50% 50%, rgba(45, 212, 191, 0.10), rgba(45, 212, 191, 0) 60%);
+      animation: drift3 24s ease-in-out infinite alternate;
+    }
+    @keyframes drift1 {
+      from { transform: translate3d(0, 0, 0) scale(1); }
+      to { transform: translate3d(7vmax, 5vmax, 0) scale(1.12); }
+    }
+    @keyframes drift2 {
+      from { transform: translate3d(0, 0, 0) scale(1.06) rotate(0deg); }
+      to { transform: translate3d(-6vmax, 6vmax, 0) scale(0.96) rotate(10deg); }
+    }
+    @keyframes drift3 {
+      from { transform: translate3d(0, 0, 0) scale(0.98); }
+      to { transform: translate3d(4vmax, -5vmax, 0) scale(1.1); }
+    }
+
+    /* 星点：两组不同周期的闪烁，营造纵深 */
+    .stars {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(1px 1px at 11% 24%, rgba(232, 237, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 27% 68%, rgba(232, 237, 255, 0.55), transparent),
+        radial-gradient(1.5px 1.5px at 43% 15%, rgba(159, 176, 255, 0.7), transparent),
+        radial-gradient(1px 1px at 58% 79%, rgba(232, 237, 255, 0.5), transparent),
+        radial-gradient(1px 1px at 71% 33%, rgba(232, 237, 255, 0.75), transparent),
+        radial-gradient(1.5px 1.5px at 84% 61%, rgba(143, 176, 255, 0.6), transparent),
+        radial-gradient(1px 1px at 91% 12%, rgba(232, 237, 255, 0.6), transparent),
+        radial-gradient(1px 1px at 6% 86%, rgba(232, 237, 255, 0.5), transparent);
+      animation: twinkle 5.5s ease-in-out infinite alternate;
+    }
+    .stars.stars2 {
+      background-image:
+        radial-gradient(1px 1px at 19% 47%, rgba(232, 237, 255, 0.5), transparent),
+        radial-gradient(1px 1px at 36% 88%, rgba(143, 176, 255, 0.55), transparent),
+        radial-gradient(1.5px 1.5px at 52% 41%, rgba(232, 237, 255, 0.65), transparent),
+        radial-gradient(1px 1px at 66% 8%, rgba(232, 237, 255, 0.5), transparent),
+        radial-gradient(1px 1px at 78% 84%, rgba(232, 237, 255, 0.45), transparent),
+        radial-gradient(1.5px 1.5px at 95% 40%, rgba(159, 176, 255, 0.55), transparent);
+      animation-duration: 8s;
+      animation-delay: -3.2s;
+      opacity: 0.55;
+    }
+    @keyframes twinkle {
+      from { opacity: 0.4; }
+      to { opacity: 1; }
+    }
+
+    /* ---------- 主体 ---------- */
 
     .stage {
+      position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
-      padding-bottom: 4vh;
+      padding-bottom: 3vh;
+      z-index: 1;
     }
 
+    /* 鲸鱼：玻璃盘 + 呼吸辉光环 + 环绕流光 */
     .logo-area {
       position: relative;
+      width: 168px;
+      height: 168px;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      animation: fadeIn 1s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+      justify-content: center;
+      animation: emerge 0.9s cubic-bezier(0.22, 0.9, 0.36, 1) both;
     }
-    .aura {
+    .logo-disc {
+      position: relative;
+      z-index: 2;
+      width: 136px;
+      height: 136px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(160deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 55%, rgba(77, 107, 253, 0.06));
+      border: 1px solid rgba(140, 165, 255, 0.2);
+      box-shadow:
+        0 0 56px rgba(77, 107, 253, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        inset 0 -12px 28px rgba(77, 107, 253, 0.1);
+    }
+    .logo-disc img {
+      width: 82px;
+      height: 82px;
+      object-fit: contain;
+      filter: drop-shadow(0 10px 24px rgba(77, 107, 253, 0.45));
+    }
+    .halo {
       position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 280px;
-      height: 280px;
-      transform: translate(-50%, -54%);
-      background: radial-gradient(circle, rgba(77, 107, 253, 0.20) 0%, rgba(77, 107, 253, 0) 66%);
-      filter: blur(6px);
-      animation: auraPulse 4.6s ease-in-out infinite;
+      inset: 6px;
+      border-radius: 50%;
+      border: 1px solid rgba(77, 107, 253, 0.32);
+      box-shadow: 0 0 26px rgba(77, 107, 253, 0.22);
+      animation: haloBreath 4.6s ease-in-out infinite;
       pointer-events: none;
     }
-    .logo {
-      position: relative;
-      width: 116px;
-      height: 116px;
-      z-index: 1;
-      animation: float3d 4.6s ease-in-out infinite;
-      transform-style: preserve-3d;
+    @keyframes haloBreath {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.05); opacity: 1; }
     }
-    .logo img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      filter: drop-shadow(0 26px 34px rgba(77, 107, 253, 0.30));
+    .orbit {
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 1px solid rgba(120, 150, 255, 0.16);
+      animation: orbitSpin 9s linear infinite;
+      pointer-events: none;
     }
-    .reflect {
-      margin-top: 10px;
-      width: 100px;
-      height: 100px;
-      opacity: 0.16;
-      transform: scaleY(-1);
-      filter: blur(3px) saturate(0.6);
-      -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 62%);
-      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 62%);
+    .orbit i {
+      position: absolute;
+      top: -3px;
+      left: 50%;
+      width: 6px;
+      height: 6px;
+      margin-left: -3px;
+      border-radius: 50%;
+      background: var(--ds-blue-soft);
+      box-shadow: 0 0 12px 3px rgba(77, 107, 253, 0.75);
     }
-    .reflect img { width: 100%; height: 100%; object-fit: contain; }
+    @keyframes orbitSpin {
+      to { transform: rotate(360deg); }
+    }
 
     .wordmark {
-      margin-top: 26px;
-      font-size: 23px;
+      margin-top: 30px;
+      font-size: 26px;
       font-weight: 650;
-      letter-spacing: 0.5px;
-      color: var(--ink);
-      animation: fadeIn 0.8s 0.15s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+      letter-spacing: 1.2px;
+      background: linear-gradient(100deg, var(--ink) 22%, var(--ds-blue-soft) 42%, var(--ds-blue) 50%, var(--ds-blue-soft) 58%, var(--ink) 78%);
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: emerge 0.9s 0.12s cubic-bezier(0.22, 0.9, 0.36, 1) both, sheen 4.5s 1s ease-in-out infinite;
     }
-    .wordmark span { color: var(--ds-blue); }
+    @keyframes sheen {
+      0%, 100% { background-position: 0% 0; }
+      50% { background-position: 100% 0; }
+    }
+
+    /* 终端状态行 */
     .status {
-      margin-top: 11px;
+      margin-top: 16px;
+      font-family: ui-monospace, "Cascadia Mono", Consolas, "SFMono-Regular", monospace;
       font-size: 13px;
       color: var(--ink-dim);
-      letter-spacing: 0.2px;
-      animation: fadeIn 0.8s 0.25s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+      letter-spacing: 0.4px;
+      animation: emerge 0.9s 0.22s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+    }
+    .status .prompt { color: var(--ds-blue); margin-right: 8px; }
+    .status .caret {
+      display: inline-block;
+      width: 7px;
+      margin-left: 4px;
+      color: var(--ds-blue-soft);
+      animation: caretBlink 1.05s step-end infinite;
+    }
+    .status .caret::before { content: "▍"; }
+    @keyframes caretBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* 进度：细条 + 辉光游标头 + 百分比 */
+    .bar-row {
+      margin-top: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: emerge 0.9s 0.32s cubic-bezier(0.22, 0.9, 0.36, 1) both;
     }
     .bar {
-      margin-top: 22px;
-      width: 168px;
-      height: 2px;
-      border-radius: 2px;
-      background: rgba(77, 107, 253, 0.14);
-      overflow: hidden;
-      animation: fadeIn 0.8s 0.35s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+      width: 224px;
+      height: 3px;
+      border-radius: 3px;
+      background: rgba(139, 148, 184, 0.16);
+      overflow: visible;
+      position: relative;
     }
     .bar i {
       display: block;
-      width: 40%;
       height: 100%;
-      border-radius: 2px;
-      background: linear-gradient(90deg, transparent, var(--ds-blue), transparent);
-      animation: slide 1.5s ease-in-out infinite;
+      width: 0%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, rgba(77, 107, 253, 0.55), var(--ds-blue) 70%, var(--ds-blue-soft));
+      box-shadow: 0 0 12px rgba(77, 107, 253, 0.65);
+      position: relative;
+      transition: width 0.32s ease;
+    }
+    .bar i::after {
+      content: "";
+      position: absolute;
+      right: -3px;
+      top: 50%;
+      width: 7px;
+      height: 7px;
+      margin-top: -3.5px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 0 10px 2px rgba(143, 176, 255, 0.9);
+    }
+    .pct {
+      min-width: 38px;
+      text-align: left;
+      font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+      font-size: 11px;
+      color: var(--ink-faint);
+      font-variant-numeric: tabular-nums;
     }
 
+    /* 错误 / 重试（深色样式） */
     .hidden { display: none; }
     .error {
-      margin-top: 16px;
+      margin-top: 22px;
+      max-width: 430px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(217, 71, 71, 0.35);
+      background: rgba(217, 71, 71, 0.08);
+      color: #ff9a9a;
       font-size: 13px;
-      color: #d94747;
-      max-width: 420px;
       line-height: 1.6;
+      animation: emerge 0.4s ease both;
     }
     .retry {
       margin-top: 16px;
-      padding: 9px 22px;
-      border: 1px solid rgba(77, 107, 253, 0.4);
-      background: rgba(77, 107, 253, 0.08);
-      color: var(--ds-blue);
+      padding: 9px 24px;
+      border: 1px solid rgba(77, 107, 253, 0.5);
+      background: rgba(77, 107, 253, 0.12);
+      color: var(--ds-blue-soft);
       border-radius: 10px;
       cursor: pointer;
       font-size: 13px;
       font-family: inherit;
-      transition: background 0.15s ease;
+      transition: background 0.15s ease, transform 0.1s ease;
     }
-    .retry:hover { background: rgba(77, 107, 253, 0.16); }
+    .retry:hover { background: rgba(77, 107, 253, 0.24); }
+    .retry:active { transform: scale(0.97); }
 
     .footer {
       position: fixed;
-      bottom: 20px;
+      bottom: 18px;
       left: 0;
       right: 0;
       text-align: center;
-      font-size: 11px;
-      color: #b6bdcc;
-      letter-spacing: 0.6px;
-      animation: fadeIn 0.8s 0.55s cubic-bezier(0.22, 0.9, 0.36, 1) both;
+      font-size: 10.5px;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+      animation: emerge 0.9s 0.5s cubic-bezier(0.22, 0.9, 0.36, 1) both;
     }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(22px) scale(0.96); filter: blur(8px); }
-      to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-    }
-    @keyframes float3d {
-      0%, 100% { transform: perspective(720px) rotateX(2deg) rotateY(-10deg) translateY(0) scale(1); }
-      50% { transform: perspective(720px) rotateX(8deg) rotateY(10deg) translateY(-16px) scale(1.04); }
-    }
-    @keyframes auraPulse {
-      0%, 100% { opacity: 0.7; transform: translate(-50%, -54%) scale(1); }
-      50% { opacity: 1; transform: translate(-50%, -54%) scale(1.12); }
-    }
-    @keyframes slide {
-      0% { transform: translateX(-120%); }
-      100% { transform: translateX(320%); }
-    }
-
-    @media (prefers-color-scheme: dark) {
-      body {
-        color: #e7eaf3;
-        background:
-          radial-gradient(760px 520px at 50% 16%, rgba(77, 107, 253, 0.16) 0%, rgba(77, 107, 253, 0) 62%),
-          linear-gradient(180deg, #161923 0%, #12141d 48%, #0e1018 100%);
-      }
-      .wordmark { color: #e7eaf3; }
-      .status { color: #8b94a8; }
-      .footer { color: #565d70; }
+    /* 入场：模糊 → 清晰 */
+    @keyframes emerge {
+      from { opacity: 0; transform: translateY(16px) scale(0.96); filter: blur(10px); }
+      to { opacity: 1; transform: none; filter: blur(0); }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      * { animation: none !important; transition: none !important; }
-      .logo-area, .wordmark, .status, .bar { opacity: 1 !important; transform: none !important; filter: none !important; }
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .logo-area, .wordmark, .status, .bar-row, .footer { opacity: 1 !important; transform: none !important; filter: none !important; }
+      .status .caret { opacity: 1; }
     }
   </style>
 </head>
 <body>
+  <div class="aurora aurora-1"></div>
+  <div class="aurora aurora-2"></div>
+  <div class="aurora aurora-3"></div>
+  <div class="stars"></div>
+  <div class="stars stars2"></div>
+
   <div class="stage">
     <div class="logo-area">
-      <div class="aura"></div>
-      <div class="logo"><img src="./icon.png" alt="DeepSeek" /></div>
-      <div class="reflect"><img src="./icon.png" alt="" /></div>
+      <div class="halo"></div>
+      <div class="orbit"><i></i></div>
+      <div class="logo-disc"><img src="./icon.png" alt="DeepSeek" /></div>
     </div>
-    <div class="wordmark">DeepSeek <span>Desktop</span></div>
-    <div class="status" id="status">探索未至之境</div>
-    <div class="bar"><i></i></div>
-    <div class="error hidden" id="error"></div>
+    <div class="wordmark">DeepSeek Desktop</div>
+    <div class="status"><span class="prompt">▸</span><span id="status">正在唤醒本地引擎</span><span class="caret"></span></div>
+    <div class="bar-row">
+      <div class="bar"><i id="barFill"></i></div>
+      <span class="pct" id="barPct">0%</span>
+    </div>
+    <div class="error hidden" id="error" role="alert"></div>
     <button class="retry hidden" id="retry">重新启动</button>
   </div>
   <div class="footer">Designed by Cyrus</div>
+
   <script>
-    function showError(message) {
-      const err = document.getElementById('error')
-      err.textContent = message
-      err.classList.remove('hidden')
-      document.getElementById('retry').classList.remove('hidden')
+    /* 分段伪进度：起步快（→18%）、中段渐进逼近 72%；desktop:ready 冲 100% 后
+       自行播复合淡出；出错冻结进度。主进程在 ready 后延迟切文档并兜底补 fade 类。 */
+    const statusEl = document.getElementById('status')
+    const errorEl = document.getElementById('error')
+    const retryEl = document.getElementById('retry')
+    const fillEl = document.getElementById('barFill')
+    const pctEl = document.getElementById('barPct')
+
+    let progress = 0
+    let crawlTimer = null
+    let faded = false
+
+    function render() {
+      const v = Math.min(100, progress)
+      fillEl.style.width = v + '%'
+      pctEl.textContent = Math.round(v) + '%'
     }
+    function stopCrawl() {
+      if (crawlTimer) { clearInterval(crawlTimer); crawlTimer = null }
+    }
+    function startCrawl(from) {
+      stopCrawl()
+      progress = from
+      render()
+      crawlTimer = setInterval(() => {
+        if (progress < 18) progress += 2.5 + Math.random() * 2
+        else if (progress < 72) progress += (72 - progress) * 0.05 + 0.15
+        render()
+      }, 300)
+    }
+    function fadeOut() {
+      if (faded) return
+      faded = true
+      document.body.classList.add('ds-splash-fade')
+    }
+    function showError(message) {
+      errorEl.textContent = message
+      errorEl.classList.remove('hidden')
+      retryEl.classList.remove('hidden')
+    }
+
     if (window.desktop) {
       window.desktop.onReady(() => {
-        document.getElementById('status').textContent = '引擎就绪，正在载入…'
-        document.body.classList.add('ds-splash-fade')
+        stopCrawl()
+        statusEl.textContent = '引擎就绪，正在载入界面'
+        progress = 100
+        render()
+        setTimeout(fadeOut, 400)
       })
-      window.desktop.onError((message) => showError(message))
-      window.desktop.onShowRetry(() => {
-        document.getElementById('retry').classList.remove('hidden')
+      window.desktop.onError((message) => {
+        stopCrawl() // 进度冻结，突出错误
+        showError(message)
       })
-      document.getElementById('retry').addEventListener('click', () => {
-        document.getElementById('error').classList.add('hidden')
-        document.getElementById('retry').classList.add('hidden')
-        document.getElementById('status').textContent = '正在重新启动引擎…'
+      window.desktop.onShowRetry(() => retryEl.classList.remove('hidden'))
+      retryEl.addEventListener('click', () => {
+        errorEl.classList.add('hidden')
+        retryEl.classList.add('hidden')
+        statusEl.textContent = '正在重新启动引擎'
+        startCrawl(8)
         window.desktop.restart()
       })
+      startCrawl(4)
     } else {
       // preload 未注入（桥缺失）：短暂等待后给出可见错误，而不是永久转圈
       setTimeout(() => {
         if (!window.desktop) {
-          document.getElementById('status').textContent = '初始化失败'
+          statusEl.textContent = '初始化失败'
+          stopCrawl()
           showError('桌面桥未加载（preload 失效）。请重启应用；若持续出现请重新安装。')
         }
       }, 600)
