@@ -40,3 +40,6 @@ skills/*/
 .claude/
 # AI 编码代理的工作区目录
 .zcode/
+
+# 桌面桥插件的本地构建依赖（lib/ 手写产物随仓库提交）
+dsh-plugin/node_modules/

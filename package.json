@@ -1,7 +1,7 @@
 {
   "name": "deepseek-desktop",
   "productName": "DeepSeek Desktop",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "DeepSeek Harness 桌面版：Electron + 本地 dsh web 引擎，对标 Codex / Claude Code 的流畅体验。",
   "author": "DeepSeek Harness",
   "license": "MIT",
@@ -33,6 +33,7 @@
       "cordis.patch.yml",
       "skills/**",
       ".agent-presets/**",
+      "dsh-plugin/**",
       "package.json"
     ],
     "win": {

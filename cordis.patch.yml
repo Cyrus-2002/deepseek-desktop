@@ -11,3 +11,7 @@
   config:
     root: !!js dshHomePath('session')
     compression: 'none'
+
+- insert:
+    - id: dsh-desktop-bridge
+      name: dsh-desktop-bridge

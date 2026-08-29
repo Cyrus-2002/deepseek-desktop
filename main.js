@@ -26,6 +26,7 @@ process.env.DSH_DESKTOP_APP_ROOT = APP_ROOT
 const engine = require('./scripts/engine.js')
 const usage = require('./scripts/usage.js')
 const updater = require('./scripts/updater.js')
+const bridge = require('./scripts/bridge.js')
 
 const APP_NAME = 'DeepSeek Desktop'
 const APP_ID = 'com.deepseek.desktop'
@@ -137,6 +138,8 @@ function validateHarness(root) {
 let updating = false
 /** 更新期间用户关闭全部窗口：更新结束后自动退出而不是留一个无界面进程。 */
 let quitAfterUpdate = false
+/** 桌面桥（原生设置分组插件）是否就绪；false 时注入层走悬浮按钮回退。 */
+let bridgeActive = false
 
 /**
  * 自愈被中断的更新：harnessRoot 缺构建产物、且旁边存在 .dsh-fallback-* 备份时，
@@ -197,6 +200,10 @@ function seedDshHome() {
       const dst = path.join(APP_ROOT, dir)
       if (existsSync(src) && !existsSync(dst)) copyTree(src, dst)
     }
+    // dsh-plugin（桌面桥源包）：小体积且带版本升级语义，每次启动都覆盖同步，
+    // bridge.ensureDesktopBridge 据此检测版本变化并重装进 profile
+    const bridgeSrc = path.join(RESOURCES, 'dsh-plugin')
+    if (existsSync(path.join(bridgeSrc, 'package.json'))) copyTree(bridgeSrc, path.join(APP_ROOT, 'dsh-plugin'))
   } catch (error) {
     log(`DSH_HOME 种子复制失败: ${error.message}`)
   }
@@ -354,7 +361,8 @@ async function boot(config) {
   try {
     engine.startEngine({ harnessRoot: config.harnessRoot, nodePath: config.nodePath })
     window = createWindow(config)
-    const url = await waitForEngineReady(60_000)
+    // 120s：桥插件首次安装后的引擎冷启动可能显著变慢（pnpm 链接/安全扫描）
+    const url = await waitForEngineReady(120_000)
     if (window.isDestroyed()) return
     // 通知启动页淡出（splash 监听 desktop:ready）
     window.webContents.send('desktop:ready', { url })
@@ -639,6 +647,14 @@ if (!app.requestSingleInstanceLock()) {
     )
     app.exit(1)
   } else {
+    // 桌面桥：安装/挂载原生界面插件（同步、幂等；常态毫秒级，首次安装数秒；
+    // 失败自动摘除挂载行，引擎永远能启动，界面退回悬浮按钮回退）
+    bridgeActive = bridge.ensureDesktopBridge({
+      appRoot: APP_ROOT,
+      harnessRoot: app.config.harnessRoot,
+      nodePath: app.config.nodePath,
+      log,
+    })
     // 引擎尽早启动：与 Electron 初始化并行（boot 里 startEngine 幂等，不会重复拉起）
     engine.startEngine({ harnessRoot: app.config.harnessRoot, nodePath: app.config.nodePath })
     app.on('second-instance', () => {
