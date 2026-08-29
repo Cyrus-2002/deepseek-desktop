@@ -28,7 +28,7 @@
 'use strict'
 
 const { execFileSync, spawn } = require('node:child_process')
-const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSync, cpSync } = require('node:fs')
+const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSync, cpSync, statSync } = require('node:fs')
 const path = require('node:path')
 const { Readable } = require('node:stream')
 const { pipeline } = require('node:stream/promises')
@@ -43,8 +43,19 @@ const HEADERS = { Accept: 'application/vnd.github+json', 'User-Agent': 'dsh-desk
 
 const MAX_ARCHIVE_MB = 800 // 以防巨型压缩包
 const FETCH_TIMEOUT_MS = 30_000 // API / raw 请求超时
-const DOWNLOAD_TIMEOUT_MS = 10 * 60_000 // 下载整体超时
+const CONNECT_TIMEOUT_MS = 20_000 // 建连 + 响应头超时
 const PROC_TIMEOUT_MS = 20 * 60_000 // git/pnpm 步骤超时（build 可能需要几分钟）
+
+// 下载质量看门狗：太慢或停滞就放弃当前源、自动切换下一个
+const STALL_MS = 12_000 // 连续无数据视为卡死
+const SLOW_AFTER_MS = 12_000 // 起步观察期
+const SLOW_BPS = 96 * 1024 // 平均速度低于此值视为过慢（约 96KB/s）
+// 公共 GitHub 加速前缀（拼接在 codeload URL 前；随时可能失效，失败即跳过）。
+// 供应链提示：加速源是第三方，敏感环境可在 config.json 配 updateMirror: "off" 关闭。
+const MIRROR_PREFIXES = [
+  'https://ghfast.top/',
+  'https://gh-proxy.com/',
+]
 
 /* ---------------- 网络请求（带超时与限流提示） ---------------- */
 
@@ -232,46 +243,134 @@ function run(cmd, args, cwd, onLine, timeoutMs = PROC_TIMEOUT_MS) {
 
 /* ---------------- 下载 + 解压 ---------------- */
 
+function fmtBps(bps) {
+  return bps >= 1048576 ? (bps / 1048576).toFixed(1) + 'MB/s' : Math.max(1, Math.round(bps / 1024)) + 'KB/s'
+}
+
+function downloadProgressMsg(received, total, rate) {
+  const mb = (received / 1048576).toFixed(1)
+  const speed = rate ? ' · ' + fmtBps(rate) : ''
+  return total
+    ? `正在从 GitHub 下载源码… ${Math.round((received / total) * 100)}%（${mb}MB${speed}）`
+    : `正在从 GitHub 下载源码… ${mb}MB${speed}`
+}
+
 /**
- * 流式下载源码 tarball 到 archivePath（不整包进内存），带总量上限与进度回调。
- * @returns {Promise<number>} 实际字节数
+ * 构建候选下载源（按顺序尝试）：
+ *   1. 用户配置的加速前缀（config.json 的 updateMirror 或环境变量 DSH_UPDATE_MIRROR，
+ *      支持 {url} 占位符或直接前缀拼接；"off" 表示只用直连）
+ *   2. GitHub 直连
+ *   3. 公共加速前缀（默认启用，可被 updateMirror:"off" 关闭）
  */
-async function downloadTarball(sha, archivePath, onProgress) {
+function buildSourceUrls(sha, mirror) {
+  const direct = `${CODELOAD}/${sha}`
+  const urls = []
+  const add = (template) => {
+    const url = template.includes('{url}') ? template.replace('{url}', direct) : template + direct
+    if (!urls.includes(url)) urls.push(url)
+  }
+  if (typeof mirror === 'string' && mirror.trim() && mirror.trim().toLowerCase() !== 'off') {
+    add(mirror.trim())
+  }
+  urls.push(direct)
+  if (!mirror || String(mirror).trim().toLowerCase() !== 'off') {
+    for (const prefix of MIRROR_PREFIXES) add(prefix)
+  }
+  return urls
+}
+
+/** 从单一 URL 流式下载到 archivePath，带停滞/过慢看门狗与进度回调。 */
+async function downloadFromUrl(url, archivePath, onProgress) {
+  const controller = new AbortController()
+  const connectTimer = setTimeout(() => controller.abort(new Error(`连接超时（${CONNECT_TIMEOUT_MS / 1000}s）`)), CONNECT_TIMEOUT_MS)
   let res
   try {
-    res = await fetch(`${CODELOAD}/${sha}`, { headers: HEADERS, signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
+    res = await fetch(url, { headers: HEADERS, signal: controller.signal })
   } catch (error) {
-    if (error.name === 'TimeoutError') throw new Error(`下载超时（${Math.round(DOWNLOAD_TIMEOUT_MS / 60000)} 分钟），请检查网络后重试`)
-    throw error
+    throw new Error(/超时/.test(String(error.message)) ? error.message : `${error.message}（${new URL(url).host}）`)
+  } finally {
+    clearTimeout(connectTimer)
   }
   if (res.status === 403) throw new Error('GitHub 下载被限流(403)：匿名请求每小时 60 次，请稍后再试')
-  if (!res.ok) throw new Error(`源码下载失败 ${res.status}`)
+  if (!res.ok) throw new Error(`源码下载失败 ${res.status}（${new URL(url).host}）`)
+
   const total = Number(res.headers.get('content-length')) || 0
   if (total > MAX_ARCHIVE_MB * 1048576) throw new Error(`源码包过大(${Math.round(total / 1048576)}MB)，已中止`)
 
   mkdirSync(path.dirname(archivePath), { recursive: true })
   const maxBytes = MAX_ARCHIVE_MB * 1048576
+  const start = Date.now()
   let received = 0
-  let lastReport = 0
+  let lastDataAt = Date.now()
+  let lastReportAt = 0
+  let lastReportBytes = 0
+
   const source = Readable.fromWeb(res.body)
+  // 看门狗：停滞即断，平均速度过慢即断（由上层切换下一个源）
+  const watchdog = setInterval(() => {
+    const now = Date.now()
+    if (now - lastDataAt > STALL_MS) {
+      source.destroy(new Error(`下载停滞（${STALL_MS / 1000}s 无数据）`))
+      return
+    }
+    if (now - start > SLOW_AFTER_MS) {
+      const avg = (received / (now - start)) * 1000
+      if (avg < SLOW_BPS) {
+        source.destroy(new Error(`平均速度 ${fmtBps(avg)} 过慢`))
+      }
+    }
+  }, 1500)
+  watchdog.unref?.()
   source.on('data', (chunk) => {
+    lastDataAt = Date.now()
     received += chunk.length
-    if (received > maxBytes) source.destroy(new Error(`源码包超过 ${MAX_ARCHIVE_MB}MB 上限，已中止`))
-    if (onProgress && received - lastReport > 2 * 1048574) {
-      lastReport = received
-      onProgress(received, total)
+    if (received > maxBytes) {
+      source.destroy(new Error(`源码包超过 ${MAX_ARCHIVE_MB}MB 上限，已中止`))
+      return
+    }
+    const now = Date.now()
+    if (onProgress && now - lastReportAt >= 1000) {
+      const rate = ((received - lastReportBytes) / Math.max(1, now - lastReportAt)) * 1000
+      lastReportAt = now
+      lastReportBytes = received
+      onProgress(received, total, rate)
     }
   })
   try {
     await pipeline(source, createWriteStream(archivePath))
   } catch (error) {
     try { rmSync(archivePath, { force: true }) } catch { /* 忽略 */ }
-    if (error.name === 'TimeoutError' || /aborted|超时/.test(String(error.message))) {
-      throw new Error(`下载超时（${Math.round(DOWNLOAD_TIMEOUT_MS / 60000)} 分钟），请检查网络后重试`)
-    }
     throw new Error(`下载失败: ${error.message}`)
+  } finally {
+    clearInterval(watchdog)
   }
   return received
+}
+
+/**
+ * 下载源码 tarball：按候选源依次尝试（过慢/卡死/失败自动切换），直到成功。
+ * @param {object} [opts] { mirror, onSourceSwitch(next, total, reason) }
+ * @returns {Promise<{ bytes: number, url: string }>}
+ */
+async function downloadTarball(sha, archivePath, onProgress, opts = {}) {
+  const urls = buildSourceUrls(sha, opts.mirror)
+  const errors = []
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i]
+    const label = new URL(url).host
+    try {
+      const bytes = await downloadFromUrl(url, archivePath, (received, total, rate) => {
+        if (onProgress) onProgress(received, total, rate, label)
+      })
+      return { bytes, url }
+    } catch (error) {
+      errors.push(`${label}: ${error.message}`)
+      if (opts.onSourceSwitch && i < urls.length - 1) {
+        opts.onSourceSwitch(i + 1, urls.length - 1, error.message)
+      }
+    }
+  }
+  throw new Error(`所有下载源均失败 —— ${errors.join('；')}`)
 }
 
 function extractTarGz(archiveFile, destDir) {
@@ -296,27 +395,45 @@ function moveDir(src, dest) {
 
 /**
  * 应用更新：下载 → 解压 → 备份旧版 → 替换 → pnpm install → build → 状态记录。
- * @param {object} opts { appRoot, harnessRoot, remote, progress(msg) }
- *   remote 来自 fetchRemoteInfo()。
+ * @param {object} opts { appRoot, harnessRoot, remote, progress(msg), mirror? }
+ *   remote 来自 fetchRemoteInfo()；mirror 为可选下载加速前缀（含 {url} 占位符或直接前缀）。
  * @returns {{ ok, error?|message }}
  */
 async function applyUpdate(opts) {
-  const { appRoot, harnessRoot, remote, progress = () => {} } = opts
+  const { appRoot, harnessRoot, remote, progress = () => {}, mirror } = opts
   const tmpRoot = path.join(appRoot, 'logs', '.update-tmp')
   const harnessParent = path.dirname(harnessRoot)
   const backupDir = path.join(harnessParent, `.dsh-fallback-${Date.now()}`)
-  const archivePath = path.join(tmpRoot, 'source.tar.gz')
+  // 归档按 SHA 命名 + .ok 标记：构建失败重试时可直接复用，不必重新下载
+  const archivePath = path.join(tmpRoot, `source-${remote.sha.slice(0, 12)}.tar.gz`)
+  const archiveReady = `${archivePath}.ok`
   const extractDir = path.join(tmpRoot, 'extract')
 
   try {
     mkdirSync(tmpRoot, { recursive: true })
 
-    // 1. 下载（流式写盘 + 百分比进度）
+    // 1. 下载（多源自动切换 + 流式写盘 + 速度/百分比进度；同 SHA 已缓存则复用）
     progress('step:download')
-    const bytes = await downloadTarball(remote.sha, archivePath, (received, total) => {
-      progress(total ? `正在从 GitHub 下载最新源码… ${Math.round((received / total) * 100)}%` : `正在从 GitHub 下载最新源码… ${Math.round(received / 1048576)}MB`)
-    })
-    progress(`源码下载完成 ${Math.round(bytes / 1048576)}MB`)
+    let bytes = 0
+    if (existsSync(archivePath) && existsSync(archiveReady)) {
+      bytes = statSync(archivePath).size
+      progress(`发现上次下载的源码包缓存（${Math.round(bytes / 1048576)}MB），跳过下载`)
+    } else {
+      try { rmSync(archivePath, { force: true }); rmSync(archiveReady, { force: true }) } catch { /* 忽略 */ }
+      const result = await downloadTarball(remote.sha, archivePath, (received, total, rate, host) => {
+        progress(host === 'codeload.github.com'
+          ? downloadProgressMsg(received, total, rate)
+          : `${downloadProgressMsg(received, total, rate)}（加速源 ${host}）`)
+      }, {
+        mirror,
+        onSourceSwitch: (next, total, reason) => {
+          progress(`当前源太慢或不可用（${reason}），切换下载源 ${next}/${total}…`)
+        },
+      })
+      bytes = result.bytes
+      writeFileSync(archiveReady, String(bytes))
+    }
+    progress(`源码就绪 ${Math.round(bytes / 1048576)}MB`)
 
     // 2. 解压（strip:1 直接去掉顶层 deepseek-harness-<sha> 目录，源码落在 extractDir）
     progress('step:extract')
@@ -397,7 +514,7 @@ async function applyUpdate(opts) {
       progress('step:fail')
       progress('更新失败：' + error.message)
     }
-    try { rmSync(tmpRoot, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    try { rmSync(extractDir, { recursive: true, force: true }) } catch { /* 忽略：保留 source-<sha>.tar.gz 缓存供重试复用 */ }
     return { ok: false, error: error.message }
   }
 }
@@ -420,9 +537,10 @@ if (require.main === module) {
       const tmp = path.join(APP_ROOT, 'logs', '.dryrun')
       rmSync(tmp, { recursive: true, force: true })
       mkdirSync(tmp, { recursive: true })
-      const bytes = await downloadTarball(info.sha, path.join(tmp, 'source.tar.gz'), (r, t) => {
-        if (t) process.stdout.write(`\r下载 ${Math.round((r / t) * 100)}%`)
-      })
+      const { bytes } = await downloadTarball(info.sha, path.join(tmp, 'source.tar.gz'), (r, t, rate) => {
+        const msg = t ? `${Math.round((r / t) * 100)}%` : `${(r / 1048576).toFixed(1)}MB`
+        process.stdout.write(`\r下载 ${msg}${rate ? ' · ' + fmtBps(rate) : ''}   `)
+      }, { mirror: process.env.DSH_UPDATE_MIRROR })
       console.log(`\n下载完成 ${(bytes / 1048576).toFixed(1)} MB`)
       await extractTarGz(path.join(tmp, 'source.tar.gz'), path.join(tmp, 'out'))
       const rootEntry = readdirSync(path.join(tmp, 'out')).filter((n) => !n.startsWith('.'))

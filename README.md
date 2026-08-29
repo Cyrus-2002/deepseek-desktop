@@ -90,6 +90,7 @@ npm run dist
 | --- | --- | --- |
 | `harnessRoot` | ✅ | DeepSeek Harness 仓库根目录，需要已经构建过 |
 | `nodePath`    | -   | `node` 可执行文件路径，缺省走 PATH |
+| `updateMirror` | - | 更新下载加速前缀（如 `https://ghfast.top/` 或含 `{url}` 占位符的模板）；设为 `"off"` 关闭公共加速源；也可用环境变量 `DSH_UPDATE_MIRROR` |
 | `window`      | -   | 窗口大小 / 最小尺寸，桌面版会记住你的习惯 |
 
 > 配置支持带 `//` 注释的 JSONC；解析失败时会用默认配置启动但**绝不回写覆盖**你的文件（放心手动改）。
@@ -162,7 +163,7 @@ deepseek-desktop/
 悬浮设置按钮 / 应用菜单「设置 → 检查更新」：
 
 - 优先按已装源码 SHA 对比 GitHub 上游（deepseek-ai/deepseek-harness），版本号兜底；发现新版本时展示版本差异与最新提交信息
-- 确认后一键更新：下载源码 tarball（流式写盘 + 下载百分比）-> 备份旧版 -> 覆盖 `harnessRoot`（默认 `../deepseek-harness-master`，支持跨盘移动）-> `pnpm install` + `pnpm run build` -> 自动重启引擎
+- 确认后一键更新：下载源码 tarball（GitHub 直连 → 公共加速源自动切换，停滞/过慢 12 秒即换源，实时显示百分比与速度）-> 备份旧版 -> 覆盖 `harnessRoot`（默认 `../deepseek-harness-master`，支持跨盘移动）-> `pnpm install` + `pnpm run build` -> 自动重启引擎；同一版本重复尝试会复用已下载的源码包缓存，不必重新下载
 - 更新失败自动恢复旧版本，绝不留半成品；启动时还能自愈上次被中断的更新
 - 网络请求全部带超时，GitHub 限流（403）会给出可读提示；本地 harness 有未提交改动时会提前警告
 - 需要 `pnpm` 可用（构建依赖）；CLI 手动触发：`node scripts/updater.js`（`--dry-run` 仅下载解压验证；本地有未提交改动时需 `--force` 确认）

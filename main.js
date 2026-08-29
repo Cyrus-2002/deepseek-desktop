@@ -574,6 +574,8 @@ function registerIpc(config) {
         harnessRoot: config.harnessRoot,
         remote,
         progress,
+        // 下载加速源：环境变量优先，其次 config.json 的 updateMirror
+        mirror: process.env.DSH_UPDATE_MIRROR || config.updateMirror,
       })
       // 更新完成后重启引擎并载入新 UI（复用启动页淡出流程）
       if (win !== null && !win.isDestroyed()) showLoading(win)
