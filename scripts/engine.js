@@ -30,7 +30,9 @@ const APP_ROOT = process.env.DSH_DESKTOP_APP_ROOT || path.join(__dirname, '..')
 const LOG_DIR = path.join(APP_ROOT, 'logs')
 const ENGINE_LOG = path.join(LOG_DIR, 'engine.log')
 const STATE_FILE = path.join(LOG_DIR, 'engine.json')
-const READY_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/
+// 就绪 URL 可能携带认证参数（0.1.5+ 的 dsh web 会在 URL 上附 ?token=…），
+// 必须完整捕获，丢了令牌加载会被信任栅栏拒绝（黑屏）。
+const READY_LINE = /dsh web: (https?:\/\/\S+)/
 const STOP_TIMEOUT_MS = 5000
 
 let engineProc = null
