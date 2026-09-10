@@ -130,8 +130,16 @@ function readLocalSourceSha(harnessRoot) {
  * 没有历史，视为不脏。
  */
 function readDirtyState(harnessRoot) {
+  const options = { cwd: harnessRoot, encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 }
   try {
-    const out = execFileSync('git', ['status', '--porcelain'], { cwd: harnessRoot, encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 })
+    // 快照安装（updater 产出的 "source snapshot" 空提交）没有可保护的 git
+    // 历史：其整树"未提交"是快照方式的产物而非用户工作，不算 dirty。
+    // 同时跳过对巨型树的 status 扫描（node_modules 数十万文件）。
+    const head = execFileSync('git', ['log', '-1', '--format=%B'], options)
+    if (/source snapshot/i.test(head)) return false
+  } catch { /* not a git repository */ }
+  try {
+    const out = execFileSync('git', ['status', '--porcelain'], options)
     return out.trim().length > 0
   } catch { return false }
 }
