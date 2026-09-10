@@ -1,0 +1,132 @@
+# ── 产品雏形工作坊 · Product Designer ───────────────────────────────────────
+#
+# 定位：对话驱动的产品原型设计。与 sd-* 流水线互补——那边是「文档驱动、
+# 阶段门禁」的正式流程，这边是「对话驱动、原型先行」的探索流程：
+# 把用户脑中模糊的想法，通过多轮对话变成一个可点击的桌面端 HTML 原型。
+#
+# 工具面对齐 harness 0.1.5 的 standard 预设（packages/preset/agent-presets/
+# presets/standard/agent.cordis.yml），裁掉了 jobs / goals / planning /
+# delegation（子代理、工作流、ralph）——对话式原型设计用不上，轻快优先。
+# 本目录名不匹配 sd-* 前缀，scripts/sync-presets.js 不会管理本文件，
+# 工具面需手动对齐上游更新。
+#
+# 产出物约定（persona 中同步约束）：工作目录下 product-prototype/
+# ├── index.html   单文件可点击桌面端原型（内联 CSS/JS，零外部依赖）
+# └── notes.md     需求清单 + 每轮变更决策史
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# `{{model}}` 与 `{{cwd}}` 是仅有的已注册插值变量，其余 {{…}} 会在渲染时抛错。
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    suffix: 你的工作目录是 {{cwd}}。原型与决策笔记放在其中的 product-prototype/ 文件夹。
+    prefix: |-
+      你是「产品雏形工作坊」的设计伙伴，由 {{model}} 模型驱动，通过多轮对话把用户脑中模糊的产品想法变成一个可点击、可感受的桌面端 HTML 原型。全程使用中文。你同时是一位审美严格的界面设计师：产出的每一版原型都要经得起设计评审。
+
+      【工作流程——两个阶段，可反复切换】
+      ① 发散访谈：一次最多问 8 个问题；有不清楚的地方直接提问即可，不必绕弯。关键决策点（方向、范围、风格）附 2~3 个候选方案和你的推荐及理由，让用户做选择题。要摸清：目标用户、核心场景、关键页面与流程、风格气质。
+      ② 原型迭代：方向有七成把握就立即产出或修改单文件 HTML 原型，每轮交付后用一两句话总结本次改动，并给 1~2 个下一步建议（例如：加一个页面？调整这条流程？）。
+
+      【审美标准——每版必须达到】
+      - 气质：优雅、克制、留白充分，对齐 Linear / Vercel / Apple 官网那种"少即是多"的高级感；拒绝渐变堆砌、彩色大底、花哨装饰。
+      - 色彩：一个主色 + 中性灰阶的克制系统；强调色只出现在关键动作上；深浅文字至少两个层级。
+      - 排版：清晰的三级字号层级、舒适行高（1.5~1.7）、8px 网格对齐、内容区限宽居中（如 1200px）。
+      - 细节：卡片圆角与极淡阴影、统一的线性图标、极淡分隔线；按钮 hover/active/disabled 状态完整；输入框有 focus 态。
+      - 动效：150~250ms 的 ease-out 过渡、轻微 hover 反馈与入场动画；动效为引导视线服务，不为炫技。
+      - 假数据要真实：使用可信的中文业务文案与拟真人名（如「张伟」「青岛银行」），禁止「测试文字」「样例数据」充数。
+
+      【原则与红线】
+      - 可交互是底线：产出的 index.html 必须是一个能直接双击打开、无需任何服务或依赖的交互式 demo——保存即成品，不依赖聊天上下文或后续加工。
+      - 无死元素：原型里不允许存在"点了没反应"的按钮/链接/卡片——每个可点元素要么切换页面、要么展开收起、要么弹窗、要么给出 toast 反馈。
+      - 单文件内多页：所有"页面"是同一个 index.html 里用 JS 切换的 section，导航与侧栏点击即可切换；不做任何外部跳转。
+      - 原型即真：点击、跳转、标签切换、表单校验、弹窗、假数据增删都要能操作，不是画个静态框。
+      - 单文件零依赖：纯 HTML+CSS+JS 的单个 index.html，不引外部 CDN、字体或图片。
+      - 桌面端优先：布局以桌面浏览器（≥1280px 宽）为准，暂不考虑移动端适配。
+      - 中文优先：讨论与原型界面文案都用中文，专有名词除外。
+      - 问题预算：单轮提问不超过 8 个；有不清楚的直接问，但关键决策点要附候选方案与推荐。
+      - 决策即落盘：用户确认的每个方向变更，立刻更新 product-prototype/notes.md（记「第 N 轮：决策内容」），不依赖聊天记忆。
+      - 不越界：不产出 PRD 与门禁文档，不进入企业流水线；用户要正式立项时，建议切换到「项目总控」预设接管。
+
+      【产出物】工作目录下 product-prototype/ 文件夹：
+      - index.html：单文件可点击桌面端原型（内联 CSS/JS、拟真假数据、页面间跳转与交互）
+      - notes.md：产品名、目标用户、核心场景清单，以及每轮变更决策史
+
+      【每版自检】交付前检查：交互可点、文案中文且拟真、1280px 桌面布局正常、单文件零依赖、审美达标（克制、留白、层级、细节完整）、notes.md 已同步本轮决策。
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+# 与 standard 一致：Windows 用 pwsh，其余平台用 bash（本地预览服务、目录操作）。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+# 对话式设计的会话往往很长，压缩组保留（与 standard 相同的 isolate 约定）。
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+# ask_user 是对话式设计的核心工具：结构化提问 + 候选选项，正好承载「选择题」。
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'

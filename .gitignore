@@ -25,6 +25,7 @@ config.json
 !.agent-presets/README.md
 !.agent-presets/_shared/
 !.agent-presets/example/
+!.agent-presets/product-designer/
 !.agent-presets/sd-architect/
 !.agent-presets/sd-dev/
 !.agent-presets/sd-orchestrator/

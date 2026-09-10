@@ -10,6 +10,7 @@
 .agent-presets/
 ├── _shared/
 │   └── common.rows.yml     # sd-* 预设共享的工具面（权威副本，勿在预设里手改）
+├── product-designer/       # 💬 独立预设：对话式产品雏形工作坊（不参与 sd-* 同步）
 ├── sd-orchestrator/        # 流水线第 0 站：项目总控与门禁
 ├── sd-pm/                  # 第 1 站：产品经理 → docs/PRD.md
 ├── sd-ux/                  # 第 2 站：交互设计 → docs/交互设计.md + wireframes/
